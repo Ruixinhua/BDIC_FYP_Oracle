@@ -29,7 +29,7 @@ def main():
     characters_dic = {}
     index = 0
     # read and save characters as a dictionary
-    with open("dictionary.txt", "w") as w:
+    with open("dictionary.txt", "w", encoding="utf8") as w:
         for c in characters_ls:
             characters_dic[c] = index
             w.write(c + "\n")

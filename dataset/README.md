@@ -9,6 +9,7 @@ This dataset directory contains four sub directories:
     - shuo wen jie zi(说文解字)
 - [make_directory.py](make_directory.py): create png and svg directories with corresponding files.
 - [statistics.py](statistics.py): after run make_directory.py, this script will give a statistics information of created png directory.
+- dictionary.txt: It is a dictionary which contains all single character. The name of image file, e.g. S0_1.jpg, S represents '说文解字', 0 is the character in the first line of dictionary('理').
 
 |          | categories | the total number |
 | -------- | ---------- | ---------------- |
