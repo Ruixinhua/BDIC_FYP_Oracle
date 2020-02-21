@@ -1,9 +1,9 @@
 import torch.nn as nn
 import numpy as np
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 
-class BaseModel(nn.Module):
+class BaseModel(nn.Module, ABC):
     """
     Base class for all models
     """
