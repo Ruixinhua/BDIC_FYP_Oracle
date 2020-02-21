@@ -6,6 +6,7 @@ This project is the final year project of BDIC students
 	* [Requirements](#requirements)
 	* [Features](#features)
 	* [Folder Structure](#folder-structure)
+	* [Customization](#customization)
 
 
 ## Members
@@ -74,3 +75,67 @@ This project is the final year project of BDIC students
       ├── util.py
       └── ...
   ```
+  
+## Customization
+
+### Project initialization
+Use the `new_project.py` script to make a new project directory with template files.
+`python new_project.py ../NewProject` then a new project folder named 'NewProject' will be made. 
+If the new project is totally different from this one, it should be put in another folder(using ../ return last layer).
+This script will filter out unneccessary files like cache, git files or readme file.
+
+### Custom CLI options
+
+Changing values of config file(in `.json` format) is a clean, safe and easy way of tuning hyperparameters. However, sometimes
+it is better to have command line options if some values need to be changed too often or quickly.
+
+## Base class
+
+### BaseDataLoader
+- `BaseDataLoader` is a subclass of `torch.utils.data.DataLoader`, so directly use DataLoader is just OK.
+    `BaseDataLoader` handles:
+    * Generating next batch
+    * Data shuffling
+    * Generating validation data loader by calling
+      `BaseDataLoader.split_validation()`
+- **DataLoader Usage**
+`BaseDataLoader` is an iterator, to iterate through batches:
+  `BaseDataLoader` is an iterator, to iterate through batches:
+  ```python
+  for batch_idx, (x_batch, y_batch) in data_loader:
+      pass
+  ```
+    * **Example**
+
+- **Inherit ```BaseDataLoader``` to create a new DataLoader**
+    * specific dataset object when initial the object(create a Dataset class first, see:https://pytorch.org/tutorials/beginner/data_loading_tutorial.html)
+    * initial an instance of DataLoader when training and testing:
+    ```python
+    # training setup data_loader instances
+    data_loader = config.init_obj('data_loader', new_data_loader)
+    # testing setup data_loader instances
+    data_loader = getattr(new_data_loader, config['data_loader']['type'])(
+        config['data_loader']['args']['data_dir'],
+        batch_size=512,
+        shuffle=False,
+        validation_split=0.0,
+        training=False,
+        num_workers=2
+    )
+    ```
+    
+### BaseModel
+* **Writing a new model**
+1. **Inherit `BaseModel`**
+
+    `BaseModel` handles:
+    * Inherited from `torch.nn.Module`
+    * `__str__`: Modify native `print` function to prints the number of trainable parameters.
+
+2. **Implementing abstract methods**
+
+    Implement the foward pass method `forward()`
+
+* **Example**
+
+  Please refer to `model/mnist_model.py` for a LeNet example.
