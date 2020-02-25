@@ -10,7 +10,7 @@ def mk_dirs(paths):
 
 def main():
     # raw data path
-    raw_data_dir = "../data/"
+    raw_data_dir = "raw_data/"
     # oracle inscriptions path
     oracle_dir = "oracle_inscriptions/"
     # bronze inscriptions path
