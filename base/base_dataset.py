@@ -16,7 +16,7 @@ class BaseDataset(Dataset, ABC):
         Parameters:
             data_root -- the root directory that stores data
         """
-        self.root = data_root
+        self.root_dir = data_root
 
     @abstractmethod
     def __len__(self):
