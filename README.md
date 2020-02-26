@@ -1,7 +1,7 @@
 # BDIC FYP Oracle
 This project is the final year project of BDIC students
 
-* [BDIC FYP Oracle](#BDIC FYP Ocalet)
+* [BDIC FYP Oracle](#BDIC-FYP-Oracle)
     * [Members](members)
 	* [Requirements](#requirements)
 	* [Features](#features)
