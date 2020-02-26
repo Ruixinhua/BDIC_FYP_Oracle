@@ -184,15 +184,16 @@ A copy of config file will be saved in the same folder.
   
 ### BaseDataset
 * **Build a custom Dataset class**
-1. **Inherit `BaseDataset` or `torch.utils.data.Dataset
+1. **Inherit `BaseDataset` or `torch.utils.data.Dataset`**
+
     `BaseDataset` handles:
     *  Inherited from `torch.nn.data.Dataset`
     *  `____getitem__`: Define the operation when get an item from dataset
-2. **Implementing `__len__` and `__getitem__` method
+2. **Implementing `__len__` and `__getitem__` method**
 
 ### BaseTrainer
 * **Define training process**
-1. **Implementing `_train_epoch` method
+1. **Implementing `_train_epoch` method**
     * Write training logic for an epoch
     * Return a log that contains average loss and metric in this epoch
  
