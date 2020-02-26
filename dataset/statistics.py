@@ -8,4 +8,3 @@ for directory in os.scandir("png/"):
     for file in os.scandir(directory.path):
         cat.add(file.name.split("_")[0][1:])
     print("category:", len(cat))
-
