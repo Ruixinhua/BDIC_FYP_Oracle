@@ -1,12 +1,13 @@
-# BDIC FYP Ocale
+# BDIC FYP Oracle
 This project is the final year project of BDIC students
 
-* [BDIC FYP Ocale](#BDIC FYP Ocalet)
+* [BDIC FYP Oracle](#BDIC FYP Ocalet)
     * [Members](members)
 	* [Requirements](#requirements)
 	* [Features](#features)
 	* [Folder Structure](#folder-structure)
 	* [Customization](#customization)
+	* [Base class](#base-class)
 
 
 ## Members
@@ -28,6 +29,7 @@ This project is the final year project of BDIC students
   * `BaseTrainer` handles checkpoint saving/resuming, training process logging, and more.
   * `BaseDataLoader` handles batch generation, data shuffling, and validation data splitting.
   * `BaseModel` provides basic model summary.
+  * `BaseDataset` define the operation about how to get data from dataset
   
 ## Folder Structure
   ```
@@ -89,6 +91,46 @@ This script will filter out unneccessary files like cache, git files or readme f
 Changing values of config file(in `.json` format) is a clean, safe and easy way of tuning hyperparameters. However, sometimes
 it is better to have command line options if some values need to be changed too often or quickly.
 
+### Loss
+Custom loss functions can be implemented in 'model/loss.py'. Use them by changing the name given in "loss" in config file, to corresponding name.
+
+#### Metrics
+Metric functions are located in 'model/metric.py'.
+
+Monitor multiple metrics by providing a list in the configuration file, e.g.:
+  ```json
+  "metrics": ["accuracy", "top_k_acc"],
+  ```
+  
+### Validation data
+To split validation data from a data loader, call `BaseDataLoader.split_validation()`, then it will return a data loader for validation of size specified in your config file.
+The `validation_split` can be a ratio of validation set per total data(0.0 <= float < 1.0), or the number of samples (0 <= int < `n_total_samples`).
+
+**Note**: the `split_validation()` method will modify the original data loader
+**Note**: `split_validation()` will return `None` if `"validation_split"` is set to `0`
+
+### Checkpoints
+Specify the name of the training session in config files:
+  ```json
+  "name": "Oracle_LeNet",
+  ```
+
+The checkpoints will be saved in `save_dir/name/timestamp/checkpoint_epoch_n`, with timestamp in mmdd_HHMMSS format.
+
+A copy of config file will be saved in the same folder.
+
+**Note**: checkpoints contain:
+  ```python
+  {
+    'arch': arch,
+    'epoch': epoch,
+    'state_dict': self.model.state_dict(),
+    'optimizer': self.optimizer.state_dict(),
+    'monitor_best': self.mnt_best,
+    'config': self.config
+  }
+  ```
+
 ## Base class
 
 ### BaseDataLoader
@@ -138,4 +180,19 @@ it is better to have command line options if some values need to be changed too 
 
 * **Example**
 
-  Please refer to `model/mnist_model.py` for a LeNet example.
+  Please refer to `model/oracle_model.py` for a LeNet example.
+  
+### BaseDataset
+* **Build a custom Dataset class**
+1. **Inherit `BaseDataset` or `torch.utils.data.Dataset
+    `BaseDataset` handles:
+    *  Inherited from `torch.nn.data.Dataset`
+    *  `____getitem__`: Define the operation when get an item from dataset
+2. **Implementing `__len__` and `__getitem__` method
+
+### BaseTrainer
+* **Define training process**
+1. **Implementing `_train_epoch` method
+    * Write training logic for an epoch
+    * Return a log that contains average loss and metric in this epoch
+ 
