@@ -30,6 +30,20 @@ def get_device():
     return configuration.device
 
 
+def get_default_model_class(model_type="ae"):
+    if model_type == "ae":
+        return AE(input_shape=img_size * img_size)
+    elif model_type == "vae":
+        return ResNet_VAE(fc_hidden1=CNN_fc_hidden1, fc_hidden2=CNN_fc_hidden2, drop_p=0, CNN_embed_dim=CNN_embed_dim)
+
+
+def get_default_transform(model_type):
+    if model_type == "ae":
+        return transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
+    elif model_type == "vae":
+        return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
+
+
 def get_model_by_state(state_dic_path, model_class, device=get_device()):
     if os.path.exists(state_dic_path):
         model_class.load_state_dict(torch.load(state_dic_path, map_location=device))
@@ -42,32 +56,25 @@ def get_model_opt(state_dic_path, model_class, learning_rate=1e-3, device=get_de
     return model, optimizer
 
 
-def get_model_by_type(model_type, device=get_device(), train=True, model_paths=None):
-    if model_type == "ae":
-        if model_paths:
-            jia_model_path, jin_model_path = model_paths
-        else:
+def get_model_by_type(model_type, device=get_device(), train=True, model_paths=None, transform=None):
+    if model_paths:
+        jia_model_path, jin_model_path = model_paths
+    else:
+        if model_type == "ae":
             jia_model_path, jin_model_path = "model/jia_ae_base_full.pkl", "model/jin_ae_base_full.pkl"
             # jia_model_path, jin_model_path = "model/jia_ae_base.pkl", "model/jin_ae_base.pkl"
-        jia_model, jia_optimizer = get_model_opt(jia_model_path, AE(input_shape=img_size * img_size), lr, device)
-        jin_model, jin_optimizer = get_model_opt(jin_model_path, AE(input_shape=img_size * img_size), lr, device)
-        transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
-    else:
-        if model_paths:
-            jia_model_path, jin_model_path = model_paths
-        else:
+        elif model_type == "vae":
             jia_model_path, jin_model_path = "model/jia_vae_base_full.pkl", "model/jin_vae_base_full.pkl"
-
-        jia_vae = ResNet_VAE(fc_hidden1=CNN_fc_hidden1, fc_hidden2=CNN_fc_hidden2, drop_p=0,
-                             CNN_embed_dim=CNN_embed_dim)
-        jin_vae = ResNet_VAE(fc_hidden1=CNN_fc_hidden1, fc_hidden2=CNN_fc_hidden2, drop_p=0,
-                             CNN_embed_dim=CNN_embed_dim)
-        jia_model, jia_optimizer = get_model_opt(jia_model_path, jia_vae, lr, device)
-        jin_model, jin_optimizer = get_model_opt(jin_model_path, jin_vae, lr, device)
-        transform = transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
-        if train:
-            jia_model.train()
-            jin_model.train()
+        else:
+            # if not one of them, return ae model path
+            jia_model_path, jin_model_path = "model/jia_ae_base_full.pkl", "model/jin_ae_base_full.pkl"
+    jia_model, jia_optimizer = get_model_opt(jia_model_path, get_default_model_class(model_type), lr, device)
+    jin_model, jin_optimizer = get_model_opt(jin_model_path, get_default_model_class(model_type), lr, device)
+    if not transform:
+        transform = get_default_transform(model_type)
+    if train:
+        jia_model.train()
+        jin_model.train()
     return jia_model, jia_optimizer, jin_model, jin_optimizer, transform
 
 
@@ -251,4 +258,3 @@ def get_dis_err(code_vectors1, code_vectors2, labels=None, criterion="mean", mse
         else:
             dis_err = mmd_err(code_vectors1, code_vectors2)
     return dis_err
-
