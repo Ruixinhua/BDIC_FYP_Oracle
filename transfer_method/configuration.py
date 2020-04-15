@@ -40,5 +40,5 @@ model_names = ["model_%s_iter-%s" % (c, set_iter_no) for c in char_types]
 cur_model_path = os.path.join("model", "model_jin_iter-1.pkl")
 model_paths = [cur_model_path, cur_model_path]
 model_reduction_path = os.path.join("reduction", "reduction_result_iter-%s.csv" % set_iter_no)
-create_dirs([set_iter_path, "model", "reduction", "log"])
+create_dirs([set_iter_path, "model", "reduction", "log", "output", "plot"])
 

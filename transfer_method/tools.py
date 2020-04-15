@@ -13,6 +13,7 @@ import torch.optim as optim
 from models import AE
 from models import ResNet_VAE
 import pandas as pd
+import shutil
 
 seed = 42
 torch.manual_seed(seed)
@@ -24,6 +25,18 @@ img_size = 96
 CNN_fc_hidden1, CNN_fc_hidden2 = 1024, 1024
 CNN_embed_dim = 256  # latent dim extracted by 2D CNN
 char_list = None
+
+
+def copy_files(source_paths, des_paths, print_log=False):
+    """
+    将源文件移到目标文件夹
+    """
+    for source_path, des_path in zip(source_paths, des_paths):
+        if not os.path.exists(os.path.dirname(des_path)):
+            os.makedirs(os.path.dirname(des_path))
+        shutil.copyfile(source_path, des_path)
+        if print_log:
+            print("Copy file from %s to %s" % (source_path, des_path))
 
 
 def get_device():
@@ -213,6 +226,7 @@ def run_batch(model, batch, model_type="ae", train=True, mse=nn.MSELoss(reductio
 
 def run_model(model, batch, model_type="ae", mse=nn.MSELoss(reduction="sum")):
     if model_type == "ae":
+        batch = batch.view(-1, img_size * img_size)
         output, code = model(batch)
         loss = mse(output, batch)
     else:

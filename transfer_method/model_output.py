@@ -15,7 +15,7 @@ set_iter_no = configuration.set_iter_no
 device = configuration.device
 root_dir = configuration.dataset_root_dir
 data_root_dirs_default = [os.path.join(configuration.cur_data_dir, d) for d in configuration.char_types]
-output_file_default = os.path.join("result", "test_result_data-%s.pkl" % set_iter_no)
+output_file_default = os.path.join("output", "output-%s.pkl" % set_iter_no)
 
 
 def get_data_loader_with_path(data_dir, batch_size=16, transform=None):
