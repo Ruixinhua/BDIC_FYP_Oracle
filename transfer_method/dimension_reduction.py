@@ -1,40 +1,56 @@
 import os
 
 import pandas as pd
+import pickle
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import numpy as np
-import configuration
-from model_output import get_model_output
+from model_output import get_model_output_df
 
 
-def get_reduction_result(model_outputs=None, reduction_file=configuration.model_reduction_path,
-                         char_types=configuration.char_types):
-    if not model_outputs:
-        model_outputs = get_model_output()
-    # 获取测试结果
-    if os.path.exists(reduction_file):
-        model_reduction_results = pd.read_csv(reduction_file)
-        return model_reduction_results
-    model_reduction_results = pd.DataFrame({"label": [], "x": [], "y": [], "size": [], "path": [], "type": []})
-    index = 0
-    for model_output in model_outputs:
+def get_reduction_result(input_df=None, output_file="reduction/vae_base_two_1.pkl", debug=False):
+    """
+        get reduction result from input DataFrame object
+
+    Args:
+        input_df: A pandas data frame with columns “label", "type", "feature"
+        output_file: The file where the result is stored
+        debug: If True, then it will not load the output_file; default is False
+
+    Returns:  pandas data frame with columns “label", "type", "feature" and "feature" column is 2-D.
+
+    """
+    if input_df is None:
+        input_df = get_model_output_df(debug=True)
+    if os.path.exists(output_file) and not debug:
+        output_df = pickle.load(open(output_file, "rb"))
+        return output_df
+    columns = input_df.columns
+    output_df = pd.DataFrame(columns=columns)
+    for input_ in input_df.groupby(["type"]):
+        char_type, output_ = input_
         # reduce dimension to 2-D
-        images_feature, images_label, images_path = model_output
-        fea_dim = images_feature.shape[1]
+        feature = output_["feature"].values
+        feature = np.stack(feature)
+        fea_dim = feature[0].shape[0]
         if fea_dim > 512:
             # 使用PCA降至512维
             pca = PCA(n_components=512)
-            images_feature = pca.fit_transform(images_feature)
+            feature = pca.fit_transform(feature)
             print("Variance of pca", np.sum(pca.explained_variance_ratio_))
         # 使用TSNE降至2维
-        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=400)
-        tsne_features_result = tsne.fit_transform(images_feature)
-        print("Shape of features after reduce dimension", np.array(tsne_features_result).shape)
-        for label, xy, path in zip(images_label, tsne_features_result, images_path):
-            new_image = {"label": label, "x": xy[0], "y": xy[1], "size": 1, "path": path, "type": char_types[index]}
-            model_reduction_results = model_reduction_results.append(pd.Series(new_image), ignore_index=True)
-        index += 1
-    model_reduction_results.to_csv(reduction_file, encoding="utf-8")
-    return model_reduction_results
+        feature_reduction = TSNE(n_components=2, n_iter=12000, random_state=42).fit_transform(feature)
+        # feature_reduction = PCA(n_components=2).fit_transform(feature)
+        output_ = output_.drop(columns=["feature"])
+        output_["feature"] = list(feature_reduction)
+        feature_reduction = np.array(feature_reduction)
+        print("Shape of features after reduce dimension", feature_reduction.shape)
+        output_df = output_df.append(output_, ignore_index=True)
+    pickle.dump(output_df, open(output_file, "wb"))
+    return output_df
 
+
+if __name__ == "__main__":
+    # test code
+    reduction_result = get_reduction_result(get_model_output_df(output_file="output/vae_base_two_1.pkl", debug=True),
+                                            output_file="reduction/vae_base_two_1.pkl", debug=True)
