@@ -103,6 +103,6 @@ def get_model_output_df(data_root_dirs=None, output_file="output/vae_base_two_1.
 if __name__ == "__main__":
     # test code
     model_type = "vae"
-    model_paths = ("model/jia_%s_base_no_kld.pkl" % model_type, "model/jin_%s_base_no_kld.pkl" % model_type)
+    model_paths = ("model/jia_%s_base_full_old.pkl" % model_type, "model/jin_%s_base_full_old.pkl" % model_type)
     test_models = [tools.get_model_by_state(path, tools.get_default_model_class(model_type)) for path in model_paths]
     output_df = get_model_output_df(debug=True, models=test_models)
