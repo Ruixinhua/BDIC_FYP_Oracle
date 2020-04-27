@@ -38,7 +38,7 @@ def run_model(model, data_loader, model_type="vae", device=tools.get_device()):
     :param data_loader: DataLoader object
     :param model_type: the type of model
     :param device: the target device
-    :return:
+    :return: a tuple including image feature, image label, and image path
     """
     images_feature, images_label, images_path = [], [], []
     for data in data_loader:
