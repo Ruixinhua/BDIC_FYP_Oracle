@@ -3,11 +3,12 @@ import pickle
 
 import pandas as pd
 import torch
-import tools
 from torch.utils.data import DataLoader
 from torchvision.transforms import transforms
 
 import configuration
+import model_helper
+import tools
 from image_folder_with_paths import ImageFolderWithPaths
 
 
@@ -48,7 +49,7 @@ def run_model(model, data_loader, model_type="vae", device=tools.get_device()):
         # get path from override ImageFolder class
         images_path.extend(data[2])
         # code is a tensor
-        code, _ = tools.run_batch(model, images, model_type=model_type, train=False)
+        code, _ = model_helper.run_batch(model, images, model_type=model_type, train=False)
         images_feature.extend(code.data.cpu().numpy())
     return images_feature, images_label, images_path
 
