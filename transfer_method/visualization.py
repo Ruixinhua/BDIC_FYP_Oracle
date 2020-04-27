@@ -119,10 +119,12 @@ if __name__ == "__main__":
     for index in range(math.ceil(len(char_list) / test_num)):
         if index == 2: break
         begin, end = test_num * index, test_num * (index + 1)
+        # get outputs from model
         model_outputs = get_model_output_df(models=models, model_type=model_type, output_file=output_file,
                                             begin=begin, end=end, debug=True)
         # get reduction results here which is a DataFrame{"label":[],"x":[],"y":[],"size":[],"path":[],"type":[]}
         model_reduction_results = get_reduction_result(model_outputs, output_file=reduction_file, debug=True)
+        # get cluster result here
         model_cluster_result = get_cluster_output_df(model_reduction_results, output_file=cluster_file, debug=True)
         model_cluster_result = split_feature(model_cluster_result)
         print("After filter:", model_cluster_result.shape)
