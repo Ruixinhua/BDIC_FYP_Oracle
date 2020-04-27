@@ -126,7 +126,8 @@ def get_data_loader(data_dir=None, data_type="jia", train_test_split=1, train_va
         return train_loader, val_loader, test_loader
 
 
-def get_paired_data(char_types=None, test_char_num=100, batch_level="all", labeled=False, num_works=0, transform=None):
+def get_paired_data(char_types=None, test_char_num=100, batch_level="all", labeled=False, num_works=0, transform=None,
+                    batch_data_path="dataset_batch.pkl"):
     """
     batch_level="all" get data by single image; "char" means get data with char level
     output: dataset1 batch, dataset2 batch, or labels, character list
@@ -136,21 +137,21 @@ def get_paired_data(char_types=None, test_char_num=100, batch_level="all", label
     dataset1_dir = get_cur_dataset_path(char_types[0])
     dataset2_dir = get_cur_dataset_path(char_types[1])
     if os.path.exists("char_list.pkl"):
-        test_char_num, character_list = pickle.load(open("char_list.pkl", "rb"))
+        character_list = pickle.load(open("char_list.pkl", "rb"))
     else:
         character_sets = get_char_set(dataset1_dir)
         if character_sets != get_char_set(dataset2_dir):
             print("The two dataset are not identical")
         character_list = list(character_sets)
-        pickle.dump((test_char_num, character_list), open("char_list.pkl", "wb"))
+        pickle.dump(character_list, open("char_list.pkl", "wb"))
 
     print("load data by char")
-    if os.path.exists("dataset_batch.pkl") or (os.path.exists("dataset_batch_labeled.pkl") and labeled):
+    if os.path.exists(batch_data_path):
         if labeled:
-            dataset1_batch, dataset2_batch, labels = pickle.load(open("dataset_batch_labeled.pkl", "rb"))
+            dataset1_batch, dataset2_batch, labels = pickle.load(open(batch_data_path, "rb"))
             return dataset1_batch, dataset2_batch, labels, character_list
         else:
-            dataset1_batch, dataset2_batch = pickle.load(open("dataset_batch.pkl", "rb"))
+            dataset1_batch, dataset2_batch = pickle.load(open(batch_data_path, "rb"))
     else:
         dataset1_batch, dataset2_batch, labels = [], [], []
         for char in character_list[test_char_num:]:
@@ -172,10 +173,10 @@ def get_paired_data(char_types=None, test_char_num=100, batch_level="all", label
                         labels.append([char for _ in range(len(batch1[0]))])
 
         if labeled:
-            pickle.dump((dataset1_batch, dataset2_batch, labels), open("dataset_batch_labeled.pkl", "wb"))
+            pickle.dump((dataset1_batch, dataset2_batch, labels), open(batch_data_path, "wb"))
             return dataset1_batch, dataset2_batch, labels, character_list
         else:
-            pickle.dump((dataset1_batch, dataset2_batch), open("dataset_batch.pkl", "wb"))
+            pickle.dump((dataset1_batch, dataset2_batch), open(batch_data_path, "wb"))
     return dataset1_batch, dataset2_batch, character_list
 
 
@@ -205,11 +206,11 @@ def random_data(dataset1_batch, dataset2_batch, labels=None, batch_size=16, batc
     return dataset1_batch, dataset2_batch
 
 
-def loss_function(recon_x, x, mu, logvar):
+def loss_function(recon_x, x, mu, logvar, mse=nn.MSELoss(reduction="sum")):
     # MSE = F.mse_loss(recon_x, x, reduction='sum')
-    MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return MSE + KLD
+    # MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return mse(recon_x, x)
 
 
 def run_batch(model, batch, model_type="ae", train=True, mse=nn.MSELoss(reduction="sum")):

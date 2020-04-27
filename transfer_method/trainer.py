@@ -1,3 +1,6 @@
+import pickle
+import random
+
 import torch
 import copy
 import tools
@@ -23,8 +26,8 @@ def get_center_data(model, batch_data):
     return centers
 
 
-def predict():
-    jia_centers, jin_centers = get_center_data(jia_model, jia_pred_data), get_center_data(jin_model, jin_full_data)
+def predict(jia_data, jia_labels, jin_data, jin_labels, top_n):
+    jia_centers, jin_centers = get_center_data(jia_model, jia_data), get_center_data(jin_model, jin_data)
     correct_count, index_sum = 0, 0
     correct_char = {}
     for jia_center, jia_label in zip(jia_centers, jia_labels):
@@ -35,13 +38,12 @@ def predict():
         predicted_chars = [jin_labels[i] for i in top_n_char]
         if jia_label in set(predicted_chars):
             correct_count += 1
-            correct_index = predicted_chars.index(jia_label)
-            index_sum += correct_index
+            correct_index = predicted_chars.index(jia_label)    # jia_label的rank
+            index_sum += correct_index  # 预测排名总和
             if correct_index not in correct_char:
                 correct_char[correct_index] = []
             correct_char[correct_index].append(jia_label)
-    accuracy = correct_count / len(jia_centers)
-    # print("Current top %s accuracy: %.1f%%" % (top_n, accuracy * 100))
+    accuracy = correct_count / len(jia_centers) if len(jia_centers) else 0
     return accuracy, index_sum, correct_char
 
 
@@ -50,29 +52,26 @@ def save_model(jia_path, jin_path):
     best_jin_model = copy.deepcopy(jin_model)
     torch.save(best_jia_model.state_dict(), jia_path)
     torch.save(best_jin_model.state_dict(), jin_path)
-    print("Save model to %s and %s" % (jia_path, jin_path))
+    print("Save model to %s and %s" % (jia_path, jin_path), file=result_file)
+    result_file.flush()
 
 
 def main():
-    best_jia_model, best_jin_model = copy.deepcopy(jia_model), copy.deepcopy(jin_model)
-    jia_batch_data, jin_batch_data, jia_jin_labels = tools.random_data(jia_batch_all, jin_batch_all, labels=labels_all,
-                                                                       batch_level=batch_level, batch_size=batch_size)
-    print("load data success!")
-    best_acc, best_index_sum, correct_char = predict()
-    print("Current top %s accuracy: %.1f%%, index sum: %s" % (top_n, best_acc * 100, best_index_sum))
+    jia_batch_data, jin_batch_data, jia_jin_labels = tools.random_data(jia_batch_all, jin_batch_all, labels=labels_all, batch_level=batch_level, batch_size=batch_size)
+    print("load data success!", file=result_file)
+    result_file.flush()
+    if add_dis_cons and train:
+        best_acc, best_index_sum, correct_char = predict(jia_val_data, jia_val_labels, jin_full_data, jin_full_labels, top_n)
+        print("Current top %s accuracy: %.1f%%, index sum: %s" % (top_n, best_acc * 100, best_index_sum), file=result_file)
+        print("Best model predict result:", correct_char, file=result_file)
+        result_file.flush()
     jia_loss_min, jin_loss_min = float("inf"), float("inf")
-
-    print("Best model predict result:", correct_char)
     iter_no = 0
     for epoch in range(epochs):
         iter_no += 1
-        # if no improvement, then stop
-        # if epoch - min_epoch > 30:
-        #     break
         loss, count = 0, 0
         jia_loss_recon, jia_count, jin_loss_recon, jin_count = 0, 0, 0, 0
         jia_loss_all, jin_loss_all = 0, 0
-        ae_count, dis_count = 0, 0
         dis_err_all = 0
         for jia_batch, jin_batch, labels in zip(jia_batch_data, jin_batch_data, jia_jin_labels):
             # reshape mini-batch data to [N, 96*96] matrix
@@ -86,9 +85,9 @@ def main():
 
             if add_dis_cons:
                 # fix jin model and train jia model
-                jia_code, jia_loss = tools.run_batch(jia_model, jia_batch, train=train, model_type=model_type)
+                jia_code, jia_loss = tools.run_batch(jia_model, jia_batch, train=train, model_type=model_type)  # reconstruct loss
                 jin_code, _ = tools.run_batch(jin_model, jin_batch, train=False, model_type=model_type)
-                jia_loss += tools.cal_dis_err(jia_code, jin_code, labels=labels, train=train, criterion=criterion)
+                jia_loss += tools.cal_dis_err(jia_code, jin_code, labels=labels, train=train, criterion=criterion)  # + distribution loss
                 backward(jia_optimizer, jia_loss)
                 # fix jia model and train jin model
                 jia_code, _ = tools.run_batch(jia_model, jia_batch, train=False, model_type=model_type)
@@ -112,15 +111,6 @@ def main():
                 dis_err = tools.cal_dis_err(jia_code, jin_code, labels=labels, train=False, criterion=criterion)
                 jia_loss_all += jia_loss.item() + dis_err.item()
                 jin_loss_all += jin_loss.item() + dis_err.item()
-            if add_dis_cons and train:
-                if not iter_no % 10:
-                    accuracy, index_sum, correct_char = predict()
-                    if accuracy >= best_acc:
-                        if accuracy > best_acc or index_sum < best_index_sum:
-                            best_acc = accuracy
-                            best_index_sum = index_sum
-                            print("Best model predict result:", correct_char)
-                            save_model(jia_final_path, jin_final_path)
             # add the mini-batch training loss to epoch loss
             dis_err_all += dis_err.item()
             jia_loss_recon += jia_loss.item()
@@ -137,47 +127,72 @@ def main():
         if jia_loss_all < jia_loss_min and train:
             jia_loss_min = jia_loss_all
             torch.save(jia_model.state_dict(), jia_saved_path)
-            print("saved model to %s" % jia_saved_path)
+            print("saved model to %s" % jia_saved_path, file=result_file)
         if jin_loss_all < jin_loss_min and train:
             jin_loss_min = jin_loss_all
             torch.save(jin_model.state_dict(), jin_saved_path)
-            print("saved model to %s" % jin_saved_path)
+            print("saved model to %s" % jin_saved_path, file=result_file)
         # display the epoch training loss
-        print("epoch:{}/{},jia recon loss:{:.4f},jin recon loss:{:.4f}".format(epoch + 1, epochs, jia_loss_recon, jin_loss_recon))
-        print("epoch:{}/{},dis error:{:.4f},best acc:{:.1%}, index sum:{}".format(epoch + 1, epochs, dis_err_all, best_acc, best_index_sum))
-    # print("Finished!jia final loss:{:.4f}, jin final loss:{:.4f}, dis loss:{:.4f}".format(jia_loss_final, jin_loss_final, dis_loss_final))
+        print("epoch:{}/{},jia recon loss:{:.4f},jin recon loss:{:.4f}".format(epoch + 1, epochs, jia_loss_recon, jin_loss_recon), file=result_file)
+        print("epoch:{}/{},dis error:{:.4f}".format(epoch + 1, epochs, dis_err_all), file=result_file)
+        result_file.flush()
+        accuracy, index_sum, correct_char = predict(jia_val_data, jia_val_labels, jin_full_data, jin_full_labels, top_n)
+        if add_dis_cons and train:
+            accuracy, index_sum, correct_char = predict(jia_val_data, jia_val_labels, jin_full_data, jin_full_labels, top_n)
+            if accuracy >= best_acc:
+                if accuracy > best_acc or index_sum < best_index_sum:
+                    best_acc = accuracy
+                    best_index_sum = index_sum
+                    print("Current top %s accuracy: %.1f%%, index sum: %s" % (top_n, best_acc * 100, best_index_sum),
+                          file=result_file)
+                    print("Best model predict result:", correct_char, file=result_file)
+                    save_model(jia_final_path, jin_final_path)
+        jia_reconst_loss_list.append(jia_loss_recon)
+        jin_reconst_loss_list.append(jin_loss_recon)
+        dis_err_list.append(dis_err_all)
+        acc_list.append(accuracy)
+        # pickle.dump((jia_reconst_loss_list, jin_reconst_loss_list, dis_err_list, acc_list), open(value_save_path, "wb"))
+        print("--------------------------------------------------------------------------", file=result_file)
+        result_file.flush()
 
 
 if __name__ == "__main__":
     train = True
-    add_dis_cons = True  # second step training: add distance constrain
+    add_dis_cons = False  # second step training: add distance constrain
     batch_level = "all"  # the level of batch
-    model_type = "ae"
+    model_type = "vae"
     criterion = "mmd"
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_char_num = 100
-    batch_size = 512
-    epochs = 100
+    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+    test_char_num = 0
+    val_char_num = 0
+    batch_size = 16
+    epochs = 200
     img_size = 96
     top_n = 10
-    if model_type == "ae":
-        # model_paths = ("model/jia_%s_final_%s_%s.pkl" % (model_type, batch_level, criterion),
-        #                "model/jin_%s_final_%s_%s.pkl" % (model_type, batch_level, criterion))
-        model_paths = ("model/jia_%s_base_adv.pkl" % model_type, "model/jin_%s_base_adv.pkl" % model_type)
-        jia_saved_path, jin_saved_path = "model/jia_ae_base_adv.pkl", "model/jin_ae_base_adv.pkl"
-        # jia_final_path, jin_final_path = "result/jia_ae_base_full.pkl", "result/jin_ae_base_full.pkl"
-        jia_final_path = "model/jia_ae_final_%s_%s.pkl" % (batch_level, criterion)
-        jin_final_path = "model/jin_ae_final_%s_%s.pkl" % (batch_level, criterion)
-    else:
-        model_paths = ("model/jia_%s_final_%s_%s_cons.pkl" % (model_type, batch_level, criterion),
-                       "model/jin_%s_final_%s_%s_cons.pkl" % (model_type, batch_level, criterion))
-        jia_saved_path, jin_saved_path = "model/jia_vae_base_adv.pkl", "model/jin_vae_base_adv.pkl"
-        jia_final_path = "model/jia_vae_final_%s_%s.pkl" % (batch_level, criterion)
-        jin_final_path = "model/jin_vae_final_%s_%s.pkl" % (batch_level, criterion)
-    jia_model, jia_optimizer, jin_model, jin_optimizer, transform = tools.get_model_by_type(model_type, device, train, model_paths=model_paths)
-    print("load model success!")
+    result_file = open('log/vae_base_log_no_kld.txt', 'w')
+    # value_save_path = "result/value_list_second_200.pkl"
+    model_paths = ("model/jia_%s_base_no_kld.pkl" % model_type, "model/jin_%s_base_no_kld.pkl" % model_type)
+    # first step training
+    jia_saved_path, jin_saved_path = model_paths
+    # jia_saved_path, jin_saved_path = "model/jia_%s_adv.pkl" % model_type, "model/jin_%s_adv.pkl" % model_type
+    # training with distance constrains
+    # if add_dis_cons:
+    #     jia_saved_path, jin_saved_path = "model/jia_%s_adv.pkl" % model_type, "model/jin_%s_adv.pkl" % model_type
+    jia_final_path = "model/jia_%s_final_%s_%s.pkl" % (model_type, batch_level, criterion)
+    jin_final_path = "model/jin_%s_final_%s_%s.pkl" % (model_type, batch_level, criterion)
+    jia_model, jia_optimizer, jin_model, jin_optimizer, transform = tools.get_model_by_type(model_type, device, train,
+                                                                                            model_paths=model_paths)
+    print("load model success!", file=result_file)
+    result_file.flush()
+    # 除掉test_char_num全部的pair-to-pair
     # jia_batch_all, jin_batch_all, char_list = tools.get_paired_data(test_char_num=test_char_num, batch_level=batch_level, transform=transform)
-    jia_batch_all, jin_batch_all, labels_all, char_list = tools.get_paired_data(test_char_num=test_char_num, batch_level=batch_level, transform=transform, labeled=True)
-    jia_pred_data, jia_labels = tools.get_data_by_type("jia", set(char_list[test_char_num:]), transform=transform)
-    jin_full_data, jin_labels = tools.get_data_by_type("jin", set(char_list), transform=transform)
+    jia_batch_all, jin_batch_all, labels_all, char_list = tools.get_paired_data(batch_data_path="dataset_batch_vae.pkl",
+        test_char_num=test_char_num+val_char_num, batch_level=batch_level, transform=transform, labeled=True)
+    # 672, 672
+    jin_full_data, jin_full_labels = tools.get_data_by_type("jin", set(char_list), transform=transform)
+    # 100, 100
+    jia_val_data, jia_val_labels = tools.get_data_by_type("jia", set(char_list[test_char_num:val_char_num+test_char_num]), transform=transform)
+    # 100, 100
+    jia_test_data, jia_test_labels = tools.get_data_by_type("jia", set(char_list[:test_char_num]), transform=transform)
+    jia_reconst_loss_list, jin_reconst_loss_list, dis_err_list, acc_list = [], [], [], []
     main()
