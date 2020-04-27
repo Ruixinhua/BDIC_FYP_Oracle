@@ -6,7 +6,7 @@ from sklearn.cluster import estimate_bandwidth, MeanShift
 import pickle
 
 
-def get_cluster_output_df(input_df=None, output_file="cluster/vae_iter-100-1.pkl", debug=False):
+def get_cluster_output_df(input_df=None, output_file="cluster/vae_base_two_1.pkl", debug=False):
     """
     get cluster result and store the result
     Args:
