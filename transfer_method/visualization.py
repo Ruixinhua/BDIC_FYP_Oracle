@@ -103,9 +103,9 @@ if __name__ == "__main__":
     outlier_dir = os.path.join(configuration.dataset_root_dir, "paired_jia_jin_out-%s" % configuration.set_iter_no)
     model_type = "vae"
     test_num = 20
-    # model_paths = ("model/jia_%s_base_full.pkl" % model_type, "model/jin_%s_base_full.pkl" % model_type)
-    model_paths = ("model/jia_%s_base_no_kld.pkl" % model_type, "model/jin_%s_base_no_kld.pkl" % model_type)
-    # model_paths = ("model/jia_%s_base_full_old.pkl" % model_type, "model/jin_%s_base_full_old.pkl" % model_type)
+    # model_paths = ("target_model/jia_%s_base_full.pkl" % model_type, "target_model/jin_%s_base_full.pkl" % model_type)
+    model_paths = ("target_model/jia_%s_base_no_kld.pkl" % model_type, "target_model/jin_%s_base_no_kld.pkl" % model_type)
+    # model_paths = ("target_model/jia_%s_base_full_old.pkl" % model_type, "target_model/jin_%s_base_full_old.pkl" % model_type)
     models = [tools.get_model_by_state(path, tools.get_default_model_class(model_type)) for path in model_paths]
     configuration.create_dirs(["output/", "plot/", "reduction/", "cluster/"])
     output_file = os.path.join("output", "%s_nk_%d-%d.pkl" % (model_type, test_num, configuration.set_iter_no))
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     for index in range(math.ceil(len(char_list) / test_num)):
         if index == 2: break
         begin, end = test_num * index, test_num * (index + 1)
-        # get outputs from model
+        # get outputs from target_model
         model_outputs = get_model_output_df(models=models, model_type=model_type, output_file=output_file,
                                             begin=begin, end=end, debug=True)
         # get reduction results here which is a DataFrame{"label":[],"x":[],"y":[],"size":[],"path":[],"type":[]}
