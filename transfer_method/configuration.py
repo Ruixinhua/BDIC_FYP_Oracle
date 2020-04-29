@@ -36,12 +36,12 @@ cur_data_dir = os.path.join(dataset_root_dir, "paired_jia_jin")
 # chars = ["jia", "jin", "zhuan"]
 char_types = ["jia", "jin"]
 model_names = ["model_%s_iter-%s" % (c, set_iter_no) for c in char_types]
-# model_paths = [os.path.join("target_model", "%s.pkl" % model_name) for model_name in model_names]
-cur_model_path = os.path.join("target_model", "model_jin_iter-1.pkl")
+# model_paths = [os.path.join("model", "%s.pkl" % model_name) for model_name in model_names]
+cur_model_path = os.path.join("model", "model_jin_iter-1.pkl")
 model_type = "vae"
 model_paths = (os.path.join(model_root_dir, "jia_%s_base_full.pkl" % model_type),
                os.path.join(model_root_dir, "jin_%s_base_full.pkl" % model_type))
 # model_paths = [cur_model_path, cur_model_path]
 model_reduction_path = os.path.join("reduction", "reduction_result_iter-%s.csv" % set_iter_no)
-create_dirs([set_iter_path, "target_model", "reduction", "log", "output", "plot", "cluster"])
+create_dirs([set_iter_path, "model", "reduction", "log", "output", "plot", "cluster"])
 

@@ -33,11 +33,11 @@ def get_data_loader_with_path(data_dir, batch_size=16, transform=None):
 
 def run_model(model, data_loader, model_type="vae", device=tools.get_device()):
     """
-    put data into target_model and get return value of feature vector
+    put data into model and get return value of feature vector
 
-    :param model: target_model object
+    :param model: model object
     :param data_loader: DataLoader object
-    :param model_type: the type of target_model
+    :param model_type: the type of model
     :param device: the target device
     :return: a tuple including image feature, image label, and image path
     """
@@ -57,14 +57,14 @@ def run_model(model, data_loader, model_type="vae", device=tools.get_device()):
 def get_model_output_df(data_root_dirs=None, output_file="output/vae_base_two_1.pkl", model_type="vae", begin=100,
                         end=200, models=None, debug=False, device=tools.get_device()):
     """
-    get target_model output of specific root directory and return a tuple include feature, label and path
+    get model output of specific root directory and return a tuple include feature, label and path
 
     :param data_root_dirs: The directory of data
     :param output_file: The file where the result is stored in
-    :param model_type: The type of target_model, can be "vae", ”ae"
+    :param model_type: The type of model, can be "vae", ”ae"
     :param begin: The begin index of char data
     :param end: The end index of char data
-    :param models: A list of target_model,
+    :param models: A list of model,
     :param debug: If True, then it will not load the output_file; default is False
     :param device: The cuda device
     :return: A pandas DataFrame with columns "feature", "label", "path", "type"
@@ -95,7 +95,7 @@ def get_model_output_df(data_root_dirs=None, output_file="output/vae_base_two_1.
             model_output = pd.DataFrame(model_output)
             model_output["file_name"] = model_output.path.apply(lambda p: p.split(os.sep)[-1])
             model_outputs = model_outputs.append(model_output, ignore_index=True)
-    print("Get target_model output:", model_outputs.shape)
+    print("Get model output:", model_outputs.shape)
     # get data and save to file
     pickle.dump(model_outputs, open(output_file, "wb"))
     return model_outputs
@@ -104,6 +104,6 @@ def get_model_output_df(data_root_dirs=None, output_file="output/vae_base_two_1.
 if __name__ == "__main__":
     # test code
     model_type = "vae"
-    model_paths = ("target_model/jia_%s_base_full_old.pkl" % model_type, "target_model/jin_%s_base_full_old.pkl" % model_type)
+    model_paths = ("model/jia_%s_base_full_old.pkl" % model_type, "model/jin_%s_base_full_old.pkl" % model_type)
     test_models = [tools.get_model_by_state(path, tools.get_default_model_class(model_type)) for path in model_paths]
     output_df = get_model_output_df(debug=True, models=test_models)

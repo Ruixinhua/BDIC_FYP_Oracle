@@ -14,13 +14,13 @@ import tools
 def run_batch(model, batch, model_type="AE", train=True, loss_function=nn.MSELoss(reduction="sum"),
               device=tools.get_device()):
     """
-    Put a batch of data into target_model
+    Put a batch of data into model
     Args:
         model: Model object
         batch: Batch data
-        model_type: Type of target_model
+        model_type: Type of model
         train: Boolean type, default is True
-        loss_function: loss function of target_model
+        loss_function: loss function of model
         device: cuda device, default is 0
 
     Returns: The code and loss value after run the batch
@@ -36,12 +36,12 @@ def run_batch(model, batch, model_type="AE", train=True, loss_function=nn.MSELos
 
 def run_model(model, batch, model_type="AE", loss_function=nn.MSELoss(reduction="sum"), img_size=96):
     """
-    Run target_model with batch data
+    Run model with batch data
     Args:
         model: Model object
         batch: Batch data
-        model_type: Type of target_model
-        loss_function: loss function of target_model
+        model_type: Type of model
+        loss_function: loss function of model
         img_size: the size of image
 
     Returns: The code and loss value after run the batch

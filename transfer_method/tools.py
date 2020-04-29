@@ -53,7 +53,7 @@ def get_char_set(dataset_path=None, data_dir=None):
 
 def get_device(device_id=0):
     """
-    setup GPU device if available, move target_model into configured device
+    setup GPU device if available, move model into configured device
     """
     if torch.cuda.is_available():
         return torch.device("cuda:%d" % device_id)
@@ -95,19 +95,19 @@ def get_model_opt(state_dic_path, model_class, learning_rate=1e-3, device=get_de
 
 def get_models_by_type(model_type="AE", device=get_device(), train=True, model_paths=None, lr=1e-3):
     """
-    Get models by target_model paths with type
+    Get models by model paths with type
     Args:
-        model_type: type of target_model, can be "AE" or "VAE"
+        model_type: type of model, can be "AE" or "VAE"
         device: target cuda device
         train: boolean type, default is True
         model_paths: paths of models
         lr: learning rate
 
-    Returns: a tuple of target_model and target_optimizer objects
+    Returns: a tuple of model and target_optimizer objects
 
     """
     if model_paths is None:
-        # if target_model paths is not set, use default models
+        # if model paths is not set, use default models
         model_paths = ("model/jia_%s_base_full.pkl" % model_type, "model/jin_%s_base_full.pkl" % model_type)
     models = []
     for model_path in model_paths:
