@@ -37,7 +37,7 @@ class DataSplit:
 
     @lru_cache(maxsize=4)
     def get_split(self, batch_size=50, num_workers=4):
-        logging.debug('Initializing train-validation-test dataloaders')
+        logging.debug('Initializing is_train-validation-test dataloaders')
         self.train_loader = self.get_train_loader(batch_size=batch_size, num_workers=num_workers)
         self.val_loader = self.get_validation_loader(batch_size=batch_size, num_workers=num_workers)
         self.test_loader = self.get_test_loader(batch_size=batch_size, num_workers=num_workers)
@@ -45,7 +45,7 @@ class DataSplit:
 
     @lru_cache(maxsize=4)
     def get_train_loader(self, batch_size=50, num_workers=4):
-        logging.debug('Initializing train dataloader')
+        logging.debug('Initializing is_train dataloader')
         self.train_loader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, sampler=self.train_sampler,
                                                         shuffle=False, num_workers=num_workers)
         return self.train_loader
