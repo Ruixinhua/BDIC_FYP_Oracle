@@ -203,6 +203,7 @@ class BasePairedTrainer:
                         )
                         log.update({"Model is improved": "The result in test dataset"})
                         log.update(test_result)
+                        self._save_checkpoint(epoch, save_best=best)
                     else:
                         not_improved_count += 1
 
