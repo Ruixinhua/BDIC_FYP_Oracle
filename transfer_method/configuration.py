@@ -29,7 +29,7 @@ else:
     device = torch.device(cuda_device if torch.cuda.is_available() else "cpu")
     # 服务器上的文件路径
     dataset_root_dir = "/home/dairui/data/datasets/"
-    model_root_dir = "/home/dairui/workplace/BDIC_FYP_Oracle/transfer_method/target_model/"
+    model_root_dir = "/home/dairui/workplace/BDIC_FYP_Oracle/transfer_method/model/"
 set_iter_path = os.path.join(dataset_root_dir, "set_iter%s" % set_iter_no)
 # data_dir = set_iter_path
 cur_data_dir = os.path.join(dataset_root_dir, "paired_jia_jin")
