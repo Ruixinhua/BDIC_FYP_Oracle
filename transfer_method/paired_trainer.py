@@ -201,6 +201,7 @@ class BasePairedTrainer:
                             self.target_test, self.labels_test, self.source_full, self.source_labels, self.target_model,
                             self.source_model, model_type=self.model_type, criterion=self.criterion
                         )
+                        log.update({"Model is improved": "The result in test dataset"})
                         log.update(test_result)
                     else:
                         not_improved_count += 1
@@ -252,6 +253,7 @@ if __name__ == "__main__":
     model_type, criterion = "VanillaVAE", "mmd"
     test_log_file, check_dir = "log/%s_add_dis.txt" % model_type, "checkpoint/%s_add_dis/" % model_type
     base_one_model, base_one_opt = tools.get_model_opt(None, tools.get_default_model_class(model_type))
+    # change path to which model you want resume from
     model_path = "checkpoint/%s_add_dis/checkpoint-epoch20.pth" % model_type
     test_trainer = PairedTrainer(base_one_model, base_one_opt, criterion, log_file=test_log_file, saved_dir=check_dir,
                                  val_num=100, test_num=100)
