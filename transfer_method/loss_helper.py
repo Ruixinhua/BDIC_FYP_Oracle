@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # @Organization  : BDIC
-# @Author        : Liu Dairui
+# @Author        : Liu Dairui & Zhang Gechuan
 # @Time          : 2020/4/28 1:43
 # @Function      : The helper for loss calculation
 import torch
