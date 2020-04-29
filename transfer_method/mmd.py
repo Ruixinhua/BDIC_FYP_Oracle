@@ -1,4 +1,8 @@
-# Compute MMD distance using pytorch
+# -*- coding: utf-8 -*-
+# @Organization  : BDIC
+# @Author        : Zhang Gechuan
+# @Time          : 2020/4/28 1:43
+# @Function      : Compute MMD distance using pytorch
 
 import torch
 import torch.nn as nn
