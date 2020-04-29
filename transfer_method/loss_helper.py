@@ -6,6 +6,7 @@
 import torch
 import pandas as pd
 import torch.nn as nn
+from mmd import MMD_loss
 import torch.nn.functional as F
 
 
@@ -16,9 +17,8 @@ def vae_loss(recon_x, x, mu, logvar):
     return MSE + KLD
 
 
-def mmd_err(code_vectors1, code_vectors2):
-    delta = code_vectors1 - code_vectors2
-    return torch.sum(torch.mm(delta, torch.transpose(delta, 0, 1)))
+def mmd_err(code_vectors1, code_vectors2, kernel_type="linear"):
+    return MMD_loss(kernel_type=kernel_type).forward(code_vectors1, code_vectors2)
 
 
 def cal_dis_err(code_vectors1, code_vectors2, labels=None, train=True, criterion="mmd"):
@@ -42,15 +42,21 @@ def get_dis_err(code_vectors1, code_vectors2, labels=None, criterion="mmd", mse=
                 else:
                     dis_err += mse(code1, code2)
             else:
+                kernel_type = "linear"
+                if criterion == "mmd-rbf":
+                    kernel_type = "rbf"
                 if not index:
-                    dis_err = mmd_err(code1, code2)
+                    dis_err = mmd_err(code1, code2, kernel_type)
                 else:
-                    dis_err += mmd_err(code1, code2)
+                    dis_err += mmd_err(code1, code2, kernel_type)
             index += 1
     else:
         if criterion == "mean":
             dis_err = mse(code_vectors1, code_vectors2)
         else:
-            dis_err = mmd_err(code_vectors1, code_vectors2)
+            kernel_type = "linear"
+            if criterion == "mmd-rbf":
+                kernel_type = "rbf"
+            dis_err = mmd_err(code_vectors1, code_vectors2, kernel_type)
     return dis_err
 
