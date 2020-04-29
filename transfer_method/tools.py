@@ -2,32 +2,32 @@ import torch
 import configuration
 import os
 from torchvision import transforms
-import torchvision
-from data_split import DataSplit
-import numpy as np
-import pickle
-import torch.nn as nn
-import torch.nn.functional as F
-import math
 import torch.optim as optim
-from models import AE
-from models import ResNet_VAE
-import pandas as pd
+from models import AE, ResNet_VAE, VanillaVAE
 import shutil
+from datetime import datetime
 
 seed = 42
 torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-epochs = 200
-lr = 1e-3
-img_size = 96
-CNN_fc_hidden1, CNN_fc_hidden2 = 1024, 1024
-CNN_embed_dim = 256  # latent dim extracted by 2D CNN
-char_list = None
 
 
-def copy_files(source_paths, des_paths, print_log=False):
+def make_dir(d):
+    if not os.path.exists(d):
+        os.makedirs(d)
+
+
+def print_log(info_str, other_info='', file=None):
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if file:
+        print("%s [INFO]: %s %s" % (current_time, info_str, other_info), file=file)
+        file.flush()
+    else:
+        print("%s [INFO]: %s %s" % (current_time, info_str, other_info))
+
+
+def copy_files(source_paths, des_paths, is_debug=False):
     """
     将源文件移到目标文件夹
     """
@@ -35,32 +35,56 @@ def copy_files(source_paths, des_paths, print_log=False):
         if not os.path.exists(os.path.dirname(des_path)):
             os.makedirs(os.path.dirname(des_path))
         shutil.copyfile(source_path, des_path)
-        if print_log:
-            print("Copy file from %s to %s" % (source_path, des_path))
+        if is_debug:
+            print_log("Copy file from %s to %s" % (source_path, des_path))
 
 
-def get_device():
-    return configuration.device
+def get_cur_dataset_path(char_type, cur_data_dir=None):
+    if cur_data_dir is None:
+        cur_data_dir = configuration.cur_data_dir
+    return os.path.join(cur_data_dir, char_type)
 
 
-def get_default_model_class(model_type="ae"):
-    if model_type == "ae":
+def get_char_set(dataset_path=None, data_dir=None):
+    if dataset_path is None:
+        dataset_path = get_cur_dataset_path("jia", data_dir)
+    return set(os.listdir(dataset_path))
+
+
+def get_device(device_id=0):
+    """
+    setup GPU device if available, move target_model into configured device
+    """
+    if torch.cuda.is_available():
+        return torch.device("cuda:%d" % device_id)
+    else:
+        return torch.device("cpu")
+
+
+def get_default_model_class(model_type="AE", img_size=96, **model_params):
+    if model_type == "AE":
         return AE(input_shape=img_size * img_size)
-    elif model_type == "vae":
-        return ResNet_VAE(fc_hidden1=CNN_fc_hidden1, fc_hidden2=CNN_fc_hidden2, drop_p=0, CNN_embed_dim=CNN_embed_dim)
+    elif model_type == "ResNet_VAE":
+        if model_params is None:
+            model_params = {"fc_hidden1": 1024, "fc_hidden2": 1024, "CNN_embed_dim": 256}
+        return ResNet_VAE(**model_params)
+    elif model_type == "VanillaVAE":
+        return VanillaVAE(input_size=img_size)
 
 
-def get_default_transform(model_type):
-    if model_type == "ae":
+def get_default_transform(model_type, img_size=96):
+    if model_type == "AE":
         return transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
-    elif model_type == "vae":
+    elif model_type == "ResNet_VAE":
+        return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
+    elif model_type == "VanillaVAE":
         return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
 
 
 def get_model_by_state(state_dic_path, model_class, device=get_device()):
-    if os.path.exists(state_dic_path):
+    if state_dic_path is not None and os.path.exists(state_dic_path):
         model_class.load_state_dict(torch.load(state_dic_path, map_location=device))
-    return model_class.to(device)
+    return model_class
 
 
 def get_model_opt(state_dic_path, model_class, learning_rate=1e-3, device=get_device()):
@@ -69,207 +93,27 @@ def get_model_opt(state_dic_path, model_class, learning_rate=1e-3, device=get_de
     return model, optimizer
 
 
-def get_model_by_type(model_type, device=get_device(), train=True, model_paths=None, transform=None):
-    if model_paths:
-        jia_model_path, jin_model_path = model_paths
-    else:
-        if model_type == "ae":
-            jia_model_path, jin_model_path = "model/jia_ae_base_full.pkl", "model/jin_ae_base_full.pkl"
-            # jia_model_path, jin_model_path = "model/jia_ae_base.pkl", "model/jin_ae_base.pkl"
-        elif model_type == "vae":
-            jia_model_path, jin_model_path = "model/jia_vae_base_full.pkl", "model/jin_vae_base_full.pkl"
-        else:
-            # if not one of them, return ae model path
-            jia_model_path, jin_model_path = "model/jia_ae_base_full.pkl", "model/jin_ae_base_full.pkl"
-    jia_model, jia_optimizer = get_model_opt(jia_model_path, get_default_model_class(model_type), lr, device)
-    jin_model, jin_optimizer = get_model_opt(jin_model_path, get_default_model_class(model_type), lr, device)
-    if not transform:
-        transform = get_default_transform(model_type)
-    if train:
-        jia_model.train()
-        jin_model.train()
-    return jia_model, jia_optimizer, jin_model, jin_optimizer, transform
-
-
-def get_data_by_type(char_type, char_included=char_list, transform=None):
-    cur_dataset_path = get_cur_dataset_path(char_type)
-    char_data, labels = [], []
-    if not transform:
-        transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
-    for char in os.listdir(cur_dataset_path):
-        if char not in char_included: continue
-        char_data_loader = get_data_loader(os.path.join(cur_dataset_path, char), batch_size=512, transform=transform)
-        for data in char_data_loader:
-            if data[0].shape[0] == 1:
-                data[0] = torch.cat((data[0], data[0]), 0)
-            char_data.append(data[0])
-            labels.append(char)
-    return char_data, labels
-
-
-def get_data_loader(data_dir=None, data_type="jia", train_test_split=1, train_val_split=0, batch_size=16,
-                    transform=None, num_works=0):
-    if not data_dir:
-        data_dir = os.path.join(configuration.cur_data_dir, data_type)
-    if not transform:
-        transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
-    dataset = torchvision.datasets.ImageFolder(data_dir, transform=transform)
-    train_loader, val_loader, test_loader = DataSplit(dataset, train_test_split, train_val_split).get_split(batch_size,
-                                                                                                            num_workers=num_works)
-    if train_test_split == 1 and train_val_split == 0:
-        return train_loader
-    elif train_val_split == 0:
-        return train_loader, test_loader
-    elif train_test_split == 1:
-        return train_loader, val_loader
-    else:
-        return train_loader, val_loader, test_loader
-
-
-def get_paired_data(char_types=None, test_char_num=100, batch_level="all", labeled=False, num_works=0, transform=None,
-                    batch_data_path="dataset_batch.pkl"):
+def get_models_by_type(model_type="AE", device=get_device(), train=True, model_paths=None, lr=1e-3):
     """
-    batch_level="all" get data by single image; "char" means get data with char level
-    output: dataset1 batch, dataset2 batch, or labels, character list
+    Get models by target_model paths with type
+    Args:
+        model_type: type of target_model, can be "AE" or "VAE"
+        device: target cuda device
+        train: boolean type, default is True
+        model_paths: paths of models
+        lr: learning rate
+
+    Returns: a tuple of target_model and target_optimizer objects
+
     """
-    if char_types is None:
-        char_types = ["jia", "jin"]
-    dataset1_dir = get_cur_dataset_path(char_types[0])
-    dataset2_dir = get_cur_dataset_path(char_types[1])
-    if os.path.exists("char_list.pkl"):
-        character_list = pickle.load(open("char_list.pkl", "rb"))
-    else:
-        character_sets = get_char_set(dataset1_dir)
-        if character_sets != get_char_set(dataset2_dir):
-            print("The two dataset are not identical")
-        character_list = list(character_sets)
-        pickle.dump(character_list, open("char_list.pkl", "wb"))
+    if model_paths is None:
+        # if target_model paths is not set, use default models
+        model_paths = ("model/jia_%s_base_full.pkl" % model_type, "model/jin_%s_base_full.pkl" % model_type)
+    models = []
+    for model_path in model_paths:
+        model, opt = get_model_opt(model_path, get_default_model_class(model_type), lr, device)
+        if train:
+            model.is_train()
+        models.extend((model, opt))
+    return tuple(models)
 
-    print("load data by char")
-    if os.path.exists(batch_data_path):
-        if labeled:
-            dataset1_batch, dataset2_batch, labels = pickle.load(open(batch_data_path, "rb"))
-            return dataset1_batch, dataset2_batch, labels, character_list
-        else:
-            dataset1_batch, dataset2_batch = pickle.load(open(batch_data_path, "rb"))
-    else:
-        dataset1_batch, dataset2_batch, labels = [], [], []
-        for char in character_list[test_char_num:]:
-            data1_loader = get_data_loader(os.path.join(dataset1_dir, char), num_works=num_works, transform=transform)
-            data2_loader = get_data_loader(os.path.join(dataset2_dir, char), num_works=num_works, transform=transform)
-            for batch1, batch2 in zip(data1_loader, data2_loader):
-                if batch_level == "all":
-                    dataset1_batch.extend(batch1[0].data.cpu().numpy())
-                    dataset2_batch.extend(batch2[0].data.cpu().numpy())
-                    if labeled:
-                        labels.extend([char for _ in range(len(batch1[0]))])
-                if batch_level == "char":
-                    if batch1[0].shape[0] == 1:
-                        batch1[0] = torch.cat((batch1[0], batch1[0]), 0)
-                        batch2[0] = torch.cat((batch2[0], batch2[0]), 0)
-                    dataset1_batch.append(batch1[0])
-                    dataset2_batch.append(batch2[0])
-                    if labeled:
-                        labels.append([char for _ in range(len(batch1[0]))])
-
-        if labeled:
-            pickle.dump((dataset1_batch, dataset2_batch, labels), open(batch_data_path, "wb"))
-            return dataset1_batch, dataset2_batch, labels, character_list
-        else:
-            pickle.dump((dataset1_batch, dataset2_batch), open(batch_data_path, "wb"))
-    return dataset1_batch, dataset2_batch, character_list
-
-
-def get_cur_dataset_path(char_type):
-    return os.path.join(configuration.cur_data_dir, char_type)
-
-
-def get_char_set(dataset_path):
-    return set(os.listdir(dataset_path))
-
-
-def random_data(dataset1_batch, dataset2_batch, labels=None, batch_size=16, batch_level="all", seed=42):
-    np.random.seed(seed)
-    indices = list(range(len(dataset1_batch)))
-    np.random.shuffle(indices)
-    dataset1_batch = [dataset1_batch[i] for i in indices]
-    dataset2_batch = [dataset2_batch[i] for i in indices]
-    batch_num = math.ceil(len(dataset1_batch) / batch_size)
-
-    if batch_level == "all":
-        dataset1_batch = [torch.tensor(dataset1_batch[i * batch_size:(i + 1) * batch_size]) for i in range(batch_num)]
-        dataset2_batch = [torch.tensor(dataset2_batch[i * batch_size:(i + 1) * batch_size]) for i in range(batch_num)]
-    if labels:
-        labels = [labels[i] for i in indices]
-        labels = [labels[i * batch_size:(i + 1) * batch_size] for i in range(batch_num)]
-        return dataset1_batch, dataset2_batch, labels
-    return dataset1_batch, dataset2_batch
-
-
-def loss_function(recon_x, x, mu, logvar, mse=nn.MSELoss(reduction="sum")):
-    # MSE = F.mse_loss(recon_x, x, reduction='sum')
-    # MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return mse(recon_x, x)
-
-
-def run_batch(model, batch, model_type="ae", train=True, mse=nn.MSELoss(reduction="sum")):
-    """
-    input: model, batch data and model type; If train, then train=True
-    output: return the output of the model, the code, and the loss
-    """
-    if train:
-        return run_model(model, batch, model_type, mse)
-    else:
-        with torch.no_grad():
-            return run_model(model, batch, model_type, mse)
-
-
-def run_model(model, batch, model_type="ae", mse=nn.MSELoss(reduction="sum")):
-    if model_type == "ae":
-        batch = batch.view(-1, img_size * img_size)
-        output, code = model(batch)
-        loss = mse(output, batch)
-    else:
-        output, code, mu, logvar = model(batch)
-        loss = loss_function(output, batch, mu, logvar)
-    return code, loss
-
-
-def mmd_err(code_vectors1, code_vectors2):
-    delta = code_vectors1 - code_vectors2
-    return torch.sum(torch.mm(delta, torch.transpose(delta, 0, 1)))
-
-
-def cal_dis_err(code_vectors1, code_vectors2, labels=None, train=True, criterion="mean"):
-    if train:
-        return get_dis_err(code_vectors1, code_vectors2, labels, criterion)
-    else:
-        with torch.no_grad():
-            return get_dis_err(code_vectors1, code_vectors2, labels, criterion)
-
-
-def get_dis_err(code_vectors1, code_vectors2, labels=None, criterion="mean", mse=nn.MSELoss(reduction="sum")):
-    if labels:
-        dis_err = torch.tensor(0, dtype=torch.float)
-        index = 0
-        code_labels = pd.DataFrame({"index": [i for i in range(len(labels))], "labels": labels})
-        for _, group in code_labels.groupby("labels"):
-            code1, code2 = code_vectors1[group["index"].to_numpy(), :], code_vectors2[group["index"].to_numpy(), :]
-            if criterion == "mean":
-                if not index:
-                    dis_err = mse(code1, code2)
-                else:
-                    dis_err += mse(code1, code2)
-            else:
-                if not index:
-                    dis_err = mmd_err(code1, code2)
-                else:
-                    dis_err += mmd_err(code1, code2)
-            index += 1
-    else:
-        if criterion == "mean":
-            dis_err = mse(code_vectors1, code_vectors2)
-        else:
-            dis_err = mmd_err(code_vectors1, code_vectors2)
-    return dis_err
