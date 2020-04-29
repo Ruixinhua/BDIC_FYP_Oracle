@@ -40,8 +40,8 @@ def run_model(model, batch, model_type="AE", loss_function=nn.MSELoss(reduction=
     Args:
         model: Model object
         batch: Batch data
-        model_type: Type of model
-        loss_function: loss function of model
+        model_type: Type of target_model
+        loss_function: loss function of target_model
         img_size: the size of image
 
     Returns: The code and loss value after run the batch
@@ -77,7 +77,7 @@ def predict(target_data, target_labels, source_data, source_labels, target_model
         # calculate top n minimum distance characters
         top_n_char = map(distances_list.index, heapq.nsmallest(top_n, distances_list))
         predicted_chars = [source_labels[i] for i in top_n_char]
-        if target_label in set(predicted_chars):
+        if target_label in predicted_chars:
             correct_count += 1
             correct_index = predicted_chars.index(target_label)  # jia_label的rank
             index_sum += correct_index  # 预测排名总和
