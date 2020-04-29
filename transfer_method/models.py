@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# @Organization  : BDIC
+# @Author        : Liu Dairui & Zhang Gechuan
+# @Time          : 2020/4/29 22:59
+# @Function      : This is the class models
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
