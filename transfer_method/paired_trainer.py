@@ -19,7 +19,7 @@ class BasePairedTrainer:
     Base class for paired dataset training
     """
     def __init__(self, target_model, target_optimizer, criterion, source_model=None, source_optimizer=None, device_id=0,
-                 epochs=100, early_stop=20, saved_dir="checkpoint/ae_base/", save_period=10, chars=None, data_dir=None,
+                 epochs=100, early_stop=30, saved_dir="checkpoint/ae_base/", save_period=10, chars=None, data_dir=None,
                  val_num=None, test_num=None, level="all", transform=None, batch_size=16, log_file="log/tmp.txt"):
         # setup GPU device if available, move model into configured device
         if os.path.exists(log_file):
@@ -30,7 +30,7 @@ class BasePairedTrainer:
 
         # init model
         self.target_model, self.target_optimizer = target_model.to(self.device), target_optimizer
-        self.source_model = self.target_model if source_model is None else source_model
+        self.source_model = self.target_model if source_model is None else source_model.to(self.device)
         self.source_optimizer = self.target_optimizer if source_optimizer is None else source_optimizer
         self.model_type, self.criterion = type(self.target_model).__name__, criterion
         tools.make_dir(saved_dir)
@@ -151,10 +151,7 @@ class BasePairedTrainer:
         """
         Training logic for an epoch
 
-        Args:
-            epoch: Current epoch number
-
-        Returns:
+        Returns: A dictionary of log that will be output
 
         """
         raise NotImplementedError
@@ -201,8 +198,8 @@ class BasePairedTrainer:
                             self.target_test, self.labels_test, self.source_full, self.source_labels, self.target_model,
                             self.source_model, model_type=self.model_type, criterion=self.criterion
                         )
-                        log.update({"Model is improved": "The result in test dataset"})
-                        log.update(test_result)
+                        log.update({"Test accuracy": test_result["Accuracy"], "Test index": test_result["Sum of index"],
+                                    "Test correct char": test_result["Correct char"]})
                         self._save_checkpoint(epoch, save_best=best)
                     else:
                         not_improved_count += 1
@@ -212,7 +209,8 @@ class BasePairedTrainer:
                 tools.print_log("{:30s}: {}".format(str(key), value), file=self.log_file)
 
             if not_improved_count > self.early_stop:
-                tools.print_log("Validation performance did not improve for %s epochs. So Stop" % self.early_stop)
+                tools.print_log("Validation performance did not improve for %s epochs. So Stop" % self.early_stop,
+                                file=self.log_file)
                 break
 
             if epoch % self.save_period == 0:
@@ -235,10 +233,17 @@ class PairedTrainer(BasePairedTrainer):
                 # suppose target model is equal to source model
                 target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type)
                 source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type)
+                # add weight here
                 target_weight, source_weight, dis_weight = 1, 1, 1
                 dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
                 combined_loss = target_weight * target_loss + source_weight * source_loss + dis_weight * dis_loss
-                self._backward(self.target_optimizer, combined_loss)
+                if self.target_model != self.source_model:
+                    self.source_optimizer.zero_grad()
+                    combined_loss.backward(retain_graph=True)
+                    self.source_optimizer.step()
+                    self._backward(self.target_optimizer, combined_loss)
+                else:
+                    self._backward(self.target_optimizer, combined_loss)
 
             # calculate loss here
             count += len(label_batch)
@@ -252,10 +257,12 @@ class PairedTrainer(BasePairedTrainer):
 if __name__ == "__main__":
     # test code here, using ae model
     model_type, criterion = "VanillaVAE", "mmd"
-    test_log_file, check_dir = "log/%s_add_dis.txt" % model_type, "checkpoint/%s_add_dis/" % model_type
+    test_log_file, check_dir = "log/%s_add_dis_two.txt" % model_type, "checkpoint/%s_add_dis_two/" % model_type
     base_one_model, base_one_opt = tools.get_model_opt(None, tools.get_default_model_class(model_type))
+    base_two_model, base_two_opt = tools.get_model_opt(None, tools.get_default_model_class(model_type))
     # change path to which model you want resume from
-    model_path = "checkpoint/%s_add_dis/checkpoint-epoch20.pth" % model_type
-    test_trainer = PairedTrainer(base_one_model, base_one_opt, criterion, log_file=test_log_file, saved_dir=check_dir,
-                                 val_num=100, test_num=100)
+    # model_path = "checkpoint/%s_base_one/checkpoint-epoch100.pth" % model_type
+    test_trainer = PairedTrainer(base_one_model, base_one_opt, criterion, base_two_model, base_two_opt,
+                                 log_file=test_log_file, saved_dir=check_dir, val_num=100, test_num=100, epochs=200)
     test_trainer.train()
+
