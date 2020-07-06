@@ -6,92 +6,59 @@
 from abc import abstractmethod
 
 import torch
+import torch.optim as optim
 import os
 import tools
-import data_helper
+from configuration import Configuration
 import model_helper
 import loss_helper
-import numpy as np
+from paired_dataset import PairedDataset
+
+seed = 42
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 
 
 class BasePairedTrainer:
     """
     Base class for paired dataset training
     """
-    def __init__(self, target_model, target_optimizer, criterion, source_model=None, source_optimizer=None, device_id=0,
-                 epochs=100, early_stop=30, saved_dir="checkpoint/ae_base/", save_period=10, chars=None, data_dir=None,
-                 val_num=None, test_num=None, level="all", transform=None, batch_size=16, log_file="log/tmp.txt"):
+
+    def __init__(self, config: Configuration, dataset: PairedDataset):
+        self.config = config
         # setup GPU device if available, move model into configured device
-        if os.path.exists(log_file):
-            self.log_file = open(log_file, "a+", encoding="utf-8")
-        else:
-            self.log_file = open(log_file, "w", encoding="utf-8")
-        self.device = self._prepare_device(device_id)
+        self.device = self.config.device
+        self.log_file = open(self.config.log_file, "a+", encoding="utf-8")
+        tools.print_log("Using %s!!!" % self.device, file=self.log_file)
 
         # init model
-        self.target_model, self.target_optimizer = target_model.to(self.device), target_optimizer
-        self.source_model = self.target_model if source_model is None else source_model.to(self.device)
-        self.source_optimizer = self.target_optimizer if source_optimizer is None else source_optimizer
-        self.model_type, self.criterion = type(self.target_model).__name__, criterion
-        tools.make_dir(saved_dir)
-        self.checkpoint_dir, self.early_stop, self.save_period, self.epochs = saved_dir, early_stop, save_period, epochs
-        self.start_epoch, self.best_acc, self.best_index_sum = 1, 0.0, 0.0
+        self.target_model, self.target_optimizer = self._get_model_opt()
+        if self.config.strategy == "both":
+            self.source_model, self.source_optimizer = self._get_model_opt()
+        else:
+            self.source_model, self.source_optimizer = self.target_model, self.target_optimizer
+        self.model_type, self.criterion = self.config.model_type, self.config.criterion
+        self.start_epoch, self.best_acc, self.best_index_sum = 1, 0.0, 0
+        self.best_test_acc, self.best_test_index_sum = 0.0, 0
 
         # init dataset
-        self.chars = ["jia", "jin"] if chars is None else chars
-        self.transform = tools.get_default_transform(self.model_type) if transform is None else transform
-        self.batch_size, self.level = batch_size, level
-        self.add_cons = True if test_num is not None and val_num is not None else False
-        # get all paired data
-        paired = data_helper.get_paired_data(chars, 0, level, labeled=True, transform=self.transform, data_dir=data_dir)
-        self.target_data, self.source_data, self.labels = np.array(paired[0]), np.array(paired[1]), np.array(paired[2])
-        if test_num is not None and val_num is not None:
-            # target dataset and source dataset share the same labels list
-            char_list = torch.load("char_list.pkl")
-            # full source data used by predict process
-            self.source_full = [torch.tensor(self.source_data[self.labels == c]) for c in char_list]
-            self.source_labels = [c for c in char_list]
-            # validation and test target set is group by character type, and it is batch data
-            self.target_test, self.labels_test = self._split_target(char_list[:test_num])
-            self.target_val, self.labels_val = self._split_target(char_list[test_num:val_num + test_num])
-            # here training is not batch data
-            self.target_train, self.source_train, self.labels_train = self._split_data(char_list[val_num + test_num:])
-
+        self.dataset = dataset
+        self.target_data, self.source_data, self.labels = dataset.target_data, dataset.source_data, dataset.labels
+        source_exp_dir = os.path.join(dataset.dataset_root_dir, "unpaired", paired_dataset.source_name)
+        if os.path.exists(source_exp_dir):
+            self.source_data_exp, self.source_labels_exp = dataset.get_dataset_by_path(source_exp_dir)
+            tools.print_log("Load expansion data with size %s" % len(self.source_labels_exp), file=self.log_file)
         else:
-            # without test_num and val_num, it is a non-supervised learning, use all data
-            self.target_train, self.source_train, self.labels_train = self.target_data, self.source_data, self.labels
-        # delete origin dataset for saving memory, as it is just used for temporary
-        del(self.target_data, self.source_data, self.labels)
-        # get the random batch data of training
-        self.target_batches, self.source_batches, self.label_batches = data_helper.random_data(
-            self.target_train, self.source_train, self.labels_train, self.batch_size, self.level)
+            self.source_data_exp, self.source_labels_exp = None, None
+            tools.print_log("Fail to load expansion data!!!")
+        self.add_cons = True if self.config.stage == "add" else False
+        tools.print_log("Load data success!!!", file=self.log_file)
 
-    def _split_data(self, char_list):
-        """ Split data by character type, and it is not batch data"""
-        target, source, labels = [], [], []
-        for char in char_list:
-            index = (self.labels == char)
-            target.extend(self.target_data[index])
-            source.extend((self.source_data[index]))
-            labels.extend([char for _ in range(sum(index))])
-        return target, source, labels
-
-    def _split_target(self, char_list):
-        """ Split target into a list of batch """
-        target = [torch.tensor(self.target_data[self.labels == c]) for c in char_list]
-        labels = [c for c in char_list]
-        return target, labels
-
-    def _prepare_device(self, device_id):
-        """
-        setup GPU device if available, move model into configured device
-        """
-        if torch.cuda.is_available():
-            tools.print_log("Using GPU %d!!!" % device_id, file=self.log_file)
-            return torch.device("cuda:%d" % device_id)
-        else:
-            tools.print_log("No GPU available, using CPU", file=self.log_file)
-            return torch.device("cpu")
+    def _get_model_opt(self):
+        model = tools.get_default_model_class(self.config.model_type, **self.config.model_params).to(self.config.device)
+        optimizer = optim.Adam(model.parameters(), lr=self.config.lr)
+        return model, optimizer
 
     def _save_checkpoint(self, epoch, save_best=False):
         """
@@ -100,19 +67,18 @@ class BasePairedTrainer:
         :param epoch: current epoch number
         :param save_best: if True, rename the saved checkpoint to "model_best.pth"
         """
-        model_type = type(self.target_model).__name__
         state = {
-            "model_type": model_type, "epoch": epoch, "best_acc": self.best_acc, "best_index_sum": self.best_index_sum,
+            "best_acc": self.best_acc, "best_index_sum": self.best_index_sum, "config": self.config, "epoch": epoch,
             "target_model": self.target_model.state_dict(), "target_optimizer": self.target_optimizer.state_dict(),
         }
         if self.target_model != self.source_model:
             state["source_model"] = self.source_model.state_dict()
             state["source_optimizer"] = self.source_optimizer.state_dict()
-        filename = os.path.join(self.checkpoint_dir, "checkpoint-epoch{}.pth".format(epoch))
+        filename = os.path.join(self.config.saved_path, "checkpoint-epoch{}.pth".format(epoch))
         torch.save(state, filename)
         tools.print_log("Saving checkpoint: {} ...".format(filename), file=self.log_file)
         if save_best:
-            best_path = os.path.join(self.checkpoint_dir, "model_best.pth")
+            best_path = os.path.join(self.config.saved_path, "model_best.pth")
             torch.save(state, best_path)
             tools.print_log("Saving current best: model_best.pth ...", file=self.log_file)
 
@@ -126,13 +92,16 @@ class BasePairedTrainer:
         tools.print_log("Loading checkpoint: {} ...".format(resume_path), file=self.log_file)
         checkpoint = torch.load(resume_path)
         self.start_epoch = checkpoint["epoch"] + 1
+        self.config = checkpoint["config"] if "config" in checkpoint else self.config
         # load accuracy of checkpoint
         self.best_acc = checkpoint["best_acc"]
         self.best_index_sum = checkpoint["best_index_sum"]
 
         # load architecture params from checkpoint.
+        self.target_model, self.target_optimizer = self._get_model_opt()
         self.target_model.load_state_dict(checkpoint["target_model"])
         if "source_model" in checkpoint:
+            self.source_model, self.source_optimizer = self._get_model_opt()
             self.source_model.load_state_dict(checkpoint["source_model"])
         else:
             self.source_model = self.target_model
@@ -144,7 +113,8 @@ class BasePairedTrainer:
         else:
             self.source_optimizer = self.target_optimizer
 
-        tools.print_log("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch), file=self.log_file)
+        tools.print_log("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch),
+                        file=self.log_file)
 
     @abstractmethod
     def _train_epoch(self, **kwargs):
@@ -171,49 +141,70 @@ class BasePairedTrainer:
         if resume_path is not None:
             self._resume_checkpoint(resume_path)
         not_improved_count = 0
-        for epoch in range(self.start_epoch, self.epochs + 1):
-            log = {"epoch": "%s/%s" % (epoch, self.epochs)}
+        for epoch in range(self.start_epoch, self.config.epochs + 1):
+            log = {"epoch": "%s/%s" % (epoch, self.config.epochs)}
+            self.target_model.train()
+            self.source_model.train()
             result = self._train_epoch()
             # save logged information into log dict
             log.update(result)
-            self.target_batches, self.source_batches, self.label_batches = data_helper.random_data(
-                self.target_train, self.source_train, self.labels_train, self.batch_size, self.level)
             best = False
-            if self.add_cons:
-                val_result = model_helper.predict(
-                    self.target_val, self.labels_val, self.source_full, self.source_labels, self.target_model,
-                    self.source_model, model_type=self.model_type, criterion=self.criterion
+            self.target_model.eval()
+            self.source_model.eval()
+            val_result = model_helper.predict(
+                self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_full,
+                self.dataset.source_labels_full, self.target_model, self.source_model,
+                model_type=self.config.model_type, criterion=self.config.criterion
+            )
+            log.update(val_result)
+            if self.source_data_exp is not None and self.source_labels_exp is not None:
+                exp_result = model_helper.predict(
+                    self.dataset.target_val, self.dataset.labels_val, self.source_data_exp,
+                    self.source_labels_exp, self.target_model, self.source_model,
+                    model_type=self.config.model_type, criterion=self.config.criterion
                 )
-                log.update(val_result)
-                # evaluate target_model performance according to configured metric, save best checkpoint as model_best
-                if self.add_cons:
-                    cur_acc, cur_index_sum = val_result["Accuracy"], val_result["Sum of index"]
-                    # check whether model performance improved or not
-                    improved = (cur_acc > self.best_acc) or \
-                               (cur_acc == self.best_acc and cur_index_sum < self.best_index_sum)
+                log.update(
+                    {"Expand val accuracy": exp_result["Accuracy"], "Expand val index": exp_result["Sum of index"],
+                     "Expand val correct char": exp_result["Correct char"], "Expand val chars": exp_result["Chars"]})
+            # evaluate target_model performance according to configured metric, save best checkpoint as model_best
+            cur_acc, cur_index_sum = val_result["Accuracy"], val_result["Sum of index"]
+            # check whether model performance improved or not
+            improved = (cur_acc > self.best_acc) or \
+                       (cur_acc == self.best_acc and cur_index_sum < self.best_index_sum)
 
-                    if improved:
-                        not_improved_count, self.best_acc, self.best_index_sum, best = 0, cur_acc, cur_index_sum, True
-                        test_result = model_helper.predict(
-                            self.target_test, self.labels_test, self.source_full, self.source_labels, self.target_model,
-                            self.source_model, model_type=self.model_type, criterion=self.criterion
-                        )
-                        log.update({"Test accuracy": test_result["Accuracy"], "Test index": test_result["Sum of index"],
-                                    "Test correct char": test_result["Correct char"]})
-                        self._save_checkpoint(epoch, save_best=best)
-                    else:
-                        not_improved_count += 1
+            if improved:
+                not_improved_count, self.best_acc, self.best_index_sum, best = 0, cur_acc, cur_index_sum, True
+                test_result = model_helper.predict(
+                    self.dataset.target_test, self.dataset.labels_test, self.dataset.source_data_full,
+                    self.dataset.source_labels_full, self.target_model, self.source_model,
+                    model_type=self.config.model_type, criterion=self.config.criterion
+                )
+                self.best_test_acc, self.best_test_index_sum = test_result["Accuracy"], test_result["Sum of index"]
+                log.update({"Test accuracy": test_result["Accuracy"], "Test index": test_result["Sum of index"],
+                            "Test correct char": test_result["Correct char"], "Test chars": test_result["Chars"]})
+                if self.source_data_exp is not None and self.source_labels_exp is not None:
+                    exp_result = model_helper.predict(
+                        self.dataset.target_test, self.dataset.labels_test, self.source_data_exp,
+                        self.source_labels_exp, self.target_model, self.source_model,
+                        model_type=self.config.model_type, criterion=self.config.criterion
+                    )
+                    log.update(
+                        {"Expand accuracy": exp_result["Accuracy"], "Expand index": exp_result["Sum of index"],
+                         "Expand correct char": exp_result["Correct char"], "Expand chars": exp_result["Chars"]})
+                self._save_checkpoint(epoch, save_best=best)
+            else:
+                not_improved_count += 1
 
             # print logged information to the screen
             for key, value in log.items():
                 tools.print_log("{:30s}: {}".format(str(key), value), file=self.log_file)
 
-            if not_improved_count > self.early_stop:
-                tools.print_log("Validation performance did not improve for %s epochs. So Stop" % self.early_stop,
+            if not_improved_count > self.config.early_stop:
+                tools.print_log("Validation performance did not improve for %s epochs.So Stop" % self.config.early_stop,
                                 file=self.log_file)
                 break
 
-            if epoch % self.save_period == 0:
+            if epoch % self.config.save_period == 0:
                 self._save_checkpoint(epoch, save_best=best)
 
 
@@ -221,8 +212,9 @@ class PairedTrainer(BasePairedTrainer):
 
     def _train_epoch(self, **kwargs):
         target_recon_loss, source_recon_loss, dis_loss_all, count = 0.0, 0.0, 0.0, 0.0
-        for target_batch, source_batch, label_batch in zip(self.target_batches, self.source_batches, self.label_batches):
-            target_batch, source_batch = target_batch.to(self.device), source_batch.to(self.device)
+        target_data, source_data, labels = self.dataset.random_data(self.target_data, self.source_data, self.labels)
+        for target_batch, source_batch, label_batch in zip(target_data, source_data, labels):
+            target_batch, source_batch = target_batch.to(self.config.device), source_batch.to(self.config.device)
             if not self.add_cons:
                 target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type)
                 self._backward(self.target_optimizer, target_loss)
@@ -230,20 +222,118 @@ class PairedTrainer(BasePairedTrainer):
                 self._backward(self.source_optimizer, source_loss)
                 dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
             else:
-                # suppose target model is equal to source model
-                target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type)
-                source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type)
-                # add weight here
-                target_weight, source_weight, dis_weight = 1, 1, 1
-                dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
-                combined_loss = target_weight * target_loss + source_weight * source_loss + dis_weight * dis_loss
                 if self.target_model != self.source_model:
-                    self.source_optimizer.zero_grad()
-                    combined_loss.backward(retain_graph=True)
-                    self.source_optimizer.step()
+                    target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type)
+                    source_code, _ = model_helper.run_batch(self.source_model, source_batch, self.model_type,
+                                                            train=False)
+                    dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
+                    combined_loss = target_loss + dis_loss
                     self._backward(self.target_optimizer, combined_loss)
+
+                    target_code, _ = model_helper.run_batch(self.target_model, target_batch, self.model_type,
+                                                            train=False)
+                    source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type)
+                    dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
+                    combined_loss = source_loss + dis_loss
+                    self._backward(self.source_optimizer, combined_loss)
                 else:
+                    # suppose target model is equal to source model
+                    target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type, device=self.device)
+                    source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type, device=self.device)
+                    # add weight here
+                    target_weight, source_weight, dis_weight = 1, 1, 1
+                    dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
+                    combined_loss = target_weight * target_loss + source_weight * source_loss + dis_weight * dis_loss
                     self._backward(self.target_optimizer, combined_loss)
+
+            # calculate loss here
+            count += len(label_batch)
+            target_recon_loss += target_loss.item()
+            source_recon_loss += source_loss.item()
+            dis_loss_all += dis_loss.item()
+        return {"Target reconstruct loss": target_recon_loss / count,
+                "Source reconstruct loss": source_recon_loss / count, "Distance loss": dis_loss_all / count}
+
+
+class GradNormTrainer(BasePairedTrainer):
+    def __init__(self, config: Configuration, dataset: PairedDataset):
+        super().__init__(config, dataset)
+        self.target_weight = torch.tensor([1.], requires_grad=True)
+        self.source_weight = torch.tensor([1.], requires_grad=True)
+        self.dis_weight = torch.tensor([1.], requires_grad=True)
+        self.weight_opt = torch.optim.Adam([self.target_weight, self.source_weight, self.dis_weight], lr=1e-3)
+        # self.target_weight = self.target_weight.to(self.device)
+        # self.source_weight = self.source_weight.to(self.device)
+        # self.dis_weight = self.dis_weight.to(self.device)
+        self.grad_loss = torch.nn.L1Loss()
+        self.alpha = 0.16
+        self.l0 = None
+        self.isFirst = True
+
+    def _train_epoch(self, **kwargs):
+        target_recon_loss, source_recon_loss, dis_loss_all, count = 0.0, 0.0, 0.0, 0.0
+        target_data, source_data, labels = self.dataset.random_data(self.target_data, self.source_data, self.labels)
+        for target_batch, source_batch, label_batch in zip(target_data, source_data, labels):
+            target_batch, source_batch = target_batch.to(self.device), source_batch.to(self.device)
+            target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type, device=self.device)
+            source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type, device=self.device)
+            dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
+            # add weight here
+            target_loss = torch.mul(self.target_weight, target_loss.cpu())
+            source_loss = torch.mul(self.source_weight, source_loss.cpu())
+            dis_loss = torch.mul(self.dis_weight, dis_loss.cpu())
+            total_loss = (target_loss + source_loss + dis_loss)
+            if self.isFirst:
+                self.l0 = torch.div(total_loss, 3)
+                self.isFirst = False
+
+            self.target_optimizer.zero_grad()
+            total_loss.backward(retain_graph=True)
+            tools.print_log('Total loss: %s' % total_loss.item(), file=self.log_file)
+
+            # Calculating relative losses
+            lhat_source = torch.div(source_loss, self.l0)
+            lhat_target = torch.div(target_loss, self.l0)
+            lhat_dis = torch.div(dis_loss, self.l0)
+            lhat_avg = torch.div((lhat_source + lhat_target + lhat_dis), 3)
+
+            # Calculating relative inverse training rates for tasks
+            rate_source = torch.div(lhat_source, lhat_avg)
+            rate_target = torch.div(lhat_target, lhat_avg)
+            rate_dis = torch.div(lhat_dis, lhat_avg)
+
+            # Getting gradients of the first layers of each tower and calculate their l2-norm
+            param = list(self.target_model.cpu().parameters())
+            GR_source = torch.autograd.grad(source_loss, param[0], retain_graph=True, create_graph=True)
+            G_source = torch.norm(GR_source[0], 2)
+            GR_target = torch.autograd.grad(target_loss, param[0], retain_graph=True, create_graph=True)
+            G_target = torch.norm(GR_target[0], 2)
+            GR_dis = torch.autograd.grad(dis_loss, param[0], retain_graph=True, create_graph=True, allow_unused=True)
+            G_dis = torch.norm(GR_dis[0], 2)
+            G_avg = torch.div((G_source + G_target + G_dis), 3)
+
+            # Calculating the constant target for Eq. 2 in the GradNorm paper
+            C_source = (G_avg * (rate_source) ** self.alpha).detach()
+            C_target = (G_avg * (rate_target) ** self.alpha).detach()
+            C_dis = (G_avg * (rate_dis) ** self.alpha).detach()
+
+            self.weight_opt.zero_grad()
+            grad_loss = self.grad_loss(G_source, C_source) + self.grad_loss(G_target, C_target) + self.grad_loss(G_dis,
+                                                                                                                 C_dis)
+            tools.print_log('grad_loss: %s' % (grad_loss.item()), file=self.log_file)
+            grad_loss.backward(create_graph=True)
+            self.weight_opt.step()
+
+            self.target_optimizer.step()
+
+            # Renormalizing the losses weights
+            coef = 3 / (self.source_weight + self.target_weight + self.dis_weight).item()
+            self.source_weight = self.source_weight * coef
+            self.target_weight = self.target_weight * coef
+
+            self.dis_weight = self.dis_weight * coef
+            tools.print_log('source weight:%s, target weight:%s, dis weight:%s' %
+                            (self.source_weight[0], self.target_weight[0], self.dis_weight[0]), file=self.log_file)
 
             # calculate loss here
             count += len(label_batch)
@@ -256,13 +346,15 @@ class PairedTrainer(BasePairedTrainer):
 
 if __name__ == "__main__":
     # test code here, using ae model
-    model_type, criterion = "VanillaVAE", "mmd"
-    test_log_file, check_dir = "log/%s_add_dis_two.txt" % model_type, "checkpoint/%s_add_dis_two/" % model_type
-    base_one_model, base_one_opt = tools.get_model_opt(None, tools.get_default_model_class(model_type))
-    base_two_model, base_two_opt = tools.get_model_opt(None, tools.get_default_model_class(model_type))
+    model_type, criterion, strategy, stage = "VQVAE", "mmd", "single", "add"
+    dataset_name = "jia_zhuan"
+    model_params = {"embedding_dim": 16, "num_embeddings": 512}
+    conf = Configuration(device_id=0, model_type=model_type, criterion=criterion, strategy=strategy, stage=stage,
+                         paired_chars=dataset_name.split("_"), model_params=model_params, early_stop=100)
+    tools.print_log(conf.model_params, file=open(conf.log_file, "a+"))
+    paired_dataset = PairedDataset(False, dataset_name=dataset_name, model_type=model_type, val_num=100, test_num=100,
+                                   is_expanded=True, source_name="zhuan")
     # change path to which model you want resume from
-    # model_path = "checkpoint/%s_base_one/checkpoint-epoch100.pth" % model_type
-    test_trainer = PairedTrainer(base_one_model, base_one_opt, criterion, base_two_model, base_two_opt,
-                                 log_file=test_log_file, saved_dir=check_dir, val_num=100, test_num=100, epochs=200)
+    checkpoint_path = "checkpoint/%s_base_one/checkpoint-epoch60.pth" % model_type
+    test_trainer = PairedTrainer(config=conf, dataset=paired_dataset)
     test_trainer.train()
-
