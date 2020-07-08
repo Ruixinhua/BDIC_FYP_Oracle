@@ -2,46 +2,44 @@ import torch
 import os
 
 
+class Configuration:
+
+    def __init__(self, device_id=0, model_type="VanillaVAE", criterion="mmd", strategy="single", learning_rate=1e-3,
+                 epochs=100, early_stop=30, save_period=10, stage="base", model_params=None, paired_chars=None,
+                 mode="instance"):
+        if paired_chars is None:
+            paired_chars = ["jia", "jin"]
+        self.paired_chars, self.mode = paired_chars, mode
+        self._set_device(device_id=device_id)
+        self.model_type, self.criterion, self.strategy, self.lr = model_type, criterion, strategy, learning_rate
+        self.epochs, self.early_stop, self.save_period, self.stage = epochs, early_stop, save_period, stage
+        if model_params is None:
+            if model_type == "AE":
+                model_params = {"input_shape": 96 * 96}
+            elif model_type == "VanillaVAE":
+                model_params = {"input_size": 96}
+            elif model_type == "ResNet_VAE":
+                model_params = {"fc_hidden1": 1024, "fc_hidden2": 1024, "CNN_embed_dim": 256}
+            elif model_type == "VQVAE":
+                model_params = {"embedding_dim": 96, "num_embeddings": 256}
+
+        self.model_params = model_params
+        self.saved_path = os.path.join("checkpoint", "_".join(self.paired_chars), model_type, mode,
+                                       "_".join([str(p) for p in model_params.values()]))
+        log_path = os.path.join("log", "_".join(self.paired_chars), model_type, mode)
+        create_dirs([self.saved_path, log_path])
+        self.log_file = os.path.join(log_path, "%s.txt" % ("_".join([str(p) for p in model_params.values()])))
+        self.best_model_path = os.path.join(self.saved_path, "model_best.pth")
+
+    def _set_device(self, device_id=0):
+        # set GPU device
+        self.device_id = device_id
+        self.device = torch.device("cuda:%s" % device_id if torch.cuda.is_available() else "cpu")
+
+
 def create_dirs(dirs):
     for d in dirs:
         if not os.path.exists(d):
             os.makedirs(d)
 
-
-set_iter_no = 1
-run_in_server = False
-if not run_in_server:
-    if os.name == "posix":
-        # 本地没有GPU的话，设置成cpu
-        device = torch.device("cpu")
-        # 设置本地文件路径
-        dataset_root_dir = "/Users/ruixinhua/Documents/pytorch_image_classifier-master/datasets/"
-        model_root_dir = None
-    else:
-        # 设置GPU设备
-        cuda_device = "cuda:0"
-        device = torch.device(cuda_device if torch.cuda.is_available() else "cpu")
-        dataset_root_dir = "C:\\Users\\Rui\\Documents\\dataset\\"
-        model_root_dir = "C:\\Users\\Rui\\Documents\\BDIC_FYP_Oracle\\transfer_method\\model"
-else:
-    # 设置GPU设备
-    cuda_device = "cuda:0"
-    device = torch.device(cuda_device if torch.cuda.is_available() else "cpu")
-    # 服务器上的文件路径
-    dataset_root_dir = "/home/dairui/data/datasets/"
-    model_root_dir = "/home/dairui/workplace/BDIC_FYP_Oracle/transfer_method/model/"
-set_iter_path = os.path.join(dataset_root_dir, "set_iter%s" % set_iter_no)
-# data_dir = set_iter_path
-cur_data_dir = os.path.join(dataset_root_dir, "paired_jia_jin")
-# chars = ["jia", "jin", "zhuan"]
-char_types = ["jia", "jin"]
-model_names = ["model_%s_iter-%s" % (c, set_iter_no) for c in char_types]
-# model_paths = [os.path.join("model", "%s.pkl" % model_name) for model_name in model_names]
-cur_model_path = os.path.join("model", "model_jin_iter-1.pkl")
-model_type = "vae"
-model_paths = (os.path.join(model_root_dir, "jia_%s_base_full.pkl" % model_type),
-               os.path.join(model_root_dir, "jin_%s_base_full.pkl" % model_type))
-# model_paths = [cur_model_path, cur_model_path]
-model_reduction_path = os.path.join("reduction", "reduction_result_iter-%s.csv" % set_iter_no)
-create_dirs([set_iter_path, "model", "reduction", "log", "output", "plot", "cluster"])
 
