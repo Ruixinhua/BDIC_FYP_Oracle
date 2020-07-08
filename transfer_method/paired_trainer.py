@@ -154,14 +154,14 @@ class BasePairedTrainer:
             val_result = model_helper.predict(
                 self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_full,
                 self.dataset.source_labels_full, self.target_model, self.source_model,
-                model_type=self.config.model_type, criterion=self.config.criterion
+                model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
             )
             log.update(val_result)
             if self.source_data_exp is not None and self.source_labels_exp is not None:
                 exp_result = model_helper.predict(
                     self.dataset.target_val, self.dataset.labels_val, self.source_data_exp,
                     self.source_labels_exp, self.target_model, self.source_model,
-                    model_type=self.config.model_type, criterion=self.config.criterion
+                    model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
                 )
                 log.update(
                     {"Expand val accuracy": exp_result["Accuracy"], "Expand val index": exp_result["Sum of index"],
@@ -177,7 +177,7 @@ class BasePairedTrainer:
                 test_result = model_helper.predict(
                     self.dataset.target_test, self.dataset.labels_test, self.dataset.source_data_full,
                     self.dataset.source_labels_full, self.target_model, self.source_model,
-                    model_type=self.config.model_type, criterion=self.config.criterion
+                    model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
                 )
                 self.best_test_acc, self.best_test_index_sum = test_result["Accuracy"], test_result["Sum of index"]
                 log.update({"Test accuracy": test_result["Accuracy"], "Test index": test_result["Sum of index"],
@@ -186,7 +186,7 @@ class BasePairedTrainer:
                     exp_result = model_helper.predict(
                         self.dataset.target_test, self.dataset.labels_test, self.source_data_exp,
                         self.source_labels_exp, self.target_model, self.source_model,
-                        model_type=self.config.model_type, criterion=self.config.criterion
+                        model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
                     )
                     log.update(
                         {"Expand accuracy": exp_result["Accuracy"], "Expand index": exp_result["Sum of index"],
@@ -238,8 +238,10 @@ class PairedTrainer(BasePairedTrainer):
                     self._backward(self.source_optimizer, combined_loss)
                 else:
                     # suppose target model is equal to source model
-                    target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type, device=self.device)
-                    source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type, device=self.device)
+                    target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type,
+                                                                      device=self.device)
+                    source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type,
+                                                                      device=self.device)
                     # add weight here
                     target_weight, source_weight, dis_weight = 1, 1, 1
                     dis_loss = loss_helper.cal_dis_err(target_code, source_code, label_batch, criterion=self.criterion)
@@ -347,13 +349,14 @@ class GradNormTrainer(BasePairedTrainer):
 if __name__ == "__main__":
     # test code here, using ae model
     model_type, criterion, strategy, stage = "VQVAE", "mmd", "single", "add"
-    dataset_name = "jia_zhuan"
+    dataset_name = "jia_jin"
     model_params = {"embedding_dim": 16, "num_embeddings": 512}
+    mode = "instance"
     conf = Configuration(device_id=0, model_type=model_type, criterion=criterion, strategy=strategy, stage=stage,
-                         paired_chars=dataset_name.split("_"), model_params=model_params, early_stop=100)
+                         paired_chars=dataset_name.split("_"), model_params=model_params, early_stop=100, mode=mode)
     tools.print_log(conf.model_params, file=open(conf.log_file, "a+"))
     paired_dataset = PairedDataset(False, dataset_name=dataset_name, model_type=model_type, val_num=100, test_num=100,
-                                   is_expanded=True, source_name="zhuan")
+                                   is_expanded=False, source_name="jin")
     # change path to which model you want resume from
     checkpoint_path = "checkpoint/%s_base_one/checkpoint-epoch60.pth" % model_type
     test_trainer = PairedTrainer(config=conf, dataset=paired_dataset)
