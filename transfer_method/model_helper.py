@@ -7,20 +7,19 @@
 import torch
 import torch.nn as nn
 import loss_helper
-import numpy as np
 import tools
 
 
 def run_batch(model, batch, model_type="AE", train=True, mse_loss=nn.MSELoss(reduction="sum"), num_iter=None,
               device=tools.get_device()):
     """
-    Put a batch of data into model
+    Put a batch of data into models
     Args:
         model: Model object
         batch: Batch data
-        model_type: Type of model
+        model_type: Type of models
         train: Boolean type, default is True
-        mse_loss: loss function of model
+        mse_loss: loss function of models
         device: cuda device, default is 0
         num_iter: the number of iteration which is running
 
@@ -39,7 +38,7 @@ def run_batch(model, batch, model_type="AE", train=True, mse_loss=nn.MSELoss(red
 
 def run_model(model, batch, model_type="AE", mse_loss=nn.MSELoss(reduction="sum"), img_size=96, num_iter=None):
     """
-    Run model with batch data
+    Run models with batch data
     Args:
         model: Model object
         batch: Batch data
