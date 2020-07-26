@@ -65,6 +65,9 @@ class PairedDataset:
         self._split_dataset(batch_size, train_chars, val_chars)
 
     def _split_dataset(self, batch_size=128, train_chars=None, val_chars=None):
+        split_num = round(len(self.char_list)*0.1)
+        train_chars = self.char_list[split_num:] if train_chars is None else train_chars
+        val_chars = self.char_list[:split_num] if val_chars is None else val_chars
         self.train_chars, self.val_chars, self.batch_size = train_chars, val_chars, batch_size
         # prepare training dataset
         self._get_paired_data(self.train_chars)

@@ -9,10 +9,11 @@ import torch
 import torch.optim as optim
 import os
 import tools
-from configuration import Configuration
+from configuration import ModelConfiguration
 import model_helper
 import loss_helper
 from paired_dataset import PairedDataset
+from prediction import Prediction
 
 seed = 42
 torch.manual_seed(seed)
@@ -25,14 +26,14 @@ class BasePairedTrainer:
     Base class for paired dataset training
     """
 
-    def __init__(self, config: Configuration, dataset: PairedDataset):
+    def __init__(self, config: ModelConfiguration, dataset: PairedDataset):
         self.config = config
-        # setup GPU device if available, move model into configured device
+        # setup GPU device if available, move models into configured device
         self.device = self.config.device
         self.log_file = open(self.config.log_file, "a+", encoding="utf-8")
         tools.print_log("Using %s!!!" % self.device, file=self.log_file)
 
-        # init model
+        # init models
         self.target_model, self.target_optimizer = self._get_model_opt()
         if self.config.strategy == "both":
             self.source_model, self.source_optimizer = self._get_model_opt()
@@ -40,18 +41,10 @@ class BasePairedTrainer:
             self.source_model, self.source_optimizer = self.target_model, self.target_optimizer
         self.model_type, self.criterion = self.config.model_type, self.config.criterion
         self.start_epoch, self.best_acc, self.best_index_sum = 1, 0.0, 0
-        self.best_test_acc, self.best_test_index_sum = 0.0, 0
-
         # init dataset
         self.dataset = dataset
         self.target_data, self.source_data, self.labels = dataset.target_data, dataset.source_data, dataset.labels
-        source_exp_dir = os.path.join(dataset.dataset_root_dir, "unpaired", paired_dataset.source_name)
-        if os.path.exists(source_exp_dir):
-            self.source_data_exp, self.source_labels_exp = dataset.get_dataset_by_path(source_exp_dir)
-            tools.print_log("Load expansion data with size %s" % len(self.source_labels_exp), file=self.log_file)
-        else:
-            self.source_data_exp, self.source_labels_exp = None, None
-            tools.print_log("Fail to load expansion data!!!")
+        self.prediction_result = []
         self.add_cons = True if self.config.stage == "add" else False
         tools.print_log("Load data success!!!", file=self.log_file)
 
@@ -145,52 +138,31 @@ class BasePairedTrainer:
             log = {"epoch": "%s/%s" % (epoch, self.config.epochs)}
             self.target_model.train()
             self.source_model.train()
-            result = self._train_epoch()
             # save logged information into log dict
-            log.update(result)
+            log.update(self._train_epoch())
             best = False
             self.target_model.eval()
             self.source_model.eval()
-            val_result = model_helper.predict(
-                self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_full,
-                self.dataset.source_labels_full, self.target_model, self.source_model,
-                model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
-            )
+            pred = Prediction(self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_full,
+                              self.dataset.source_labels_full, self.dataset.paths_val, model_type=self.model_type)
+            val_result, val_paths = pred.predict(self.target_model, self.source_model)
+            self.prediction_result.append([val_result, val_paths])
             log.update(val_result)
-            if self.source_data_exp is not None and self.source_labels_exp is not None:
-                exp_result = model_helper.predict(
-                    self.dataset.target_val, self.dataset.labels_val, self.source_data_exp,
-                    self.source_labels_exp, self.target_model, self.source_model,
-                    model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
-                )
-                log.update(
-                    {"Expand val accuracy": exp_result["Accuracy"], "Expand val index": exp_result["Sum of index"],
-                     "Expand val correct char": exp_result["Correct char"], "Expand val chars": exp_result["Chars"]})
+            if self.dataset.source_data_exp is not None and self.dataset.source_labels_exp is not None:
+                pred = Prediction(self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_exp,
+                                  self.dataset.source_labels_exp, self.dataset.paths_val, set_type="val_exp",
+                                  model_type=self.model_type)
+                exp_result, exp_paths = pred.predict(self.target_model, self.source_model)
+                self.prediction_result.append([exp_result, exp_paths])
+                log.update(exp_result)
             # evaluate target_model performance according to configured metric, save best checkpoint as model_best
-            cur_acc, cur_index_sum = val_result["Accuracy"], val_result["Sum of index"]
-            # check whether model performance improved or not
+            cur_acc, cur_index_sum = val_result["val_accuracy"], val_result["val_index_sum"]
+            # check whether models performance improved or not
             improved = (cur_acc > self.best_acc) or \
                        (cur_acc == self.best_acc and cur_index_sum < self.best_index_sum)
 
             if improved:
                 not_improved_count, self.best_acc, self.best_index_sum, best = 0, cur_acc, cur_index_sum, True
-                test_result = model_helper.predict(
-                    self.dataset.target_test, self.dataset.labels_test, self.dataset.source_data_full,
-                    self.dataset.source_labels_full, self.target_model, self.source_model,
-                    model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
-                )
-                self.best_test_acc, self.best_test_index_sum = test_result["Accuracy"], test_result["Sum of index"]
-                log.update({"Test accuracy": test_result["Accuracy"], "Test index": test_result["Sum of index"],
-                            "Test correct char": test_result["Correct char"], "Test chars": test_result["Chars"]})
-                if self.source_data_exp is not None and self.source_labels_exp is not None:
-                    exp_result = model_helper.predict(
-                        self.dataset.target_test, self.dataset.labels_test, self.source_data_exp,
-                        self.source_labels_exp, self.target_model, self.source_model,
-                        model_type=self.config.model_type, criterion=self.config.criterion, mode=self.config.mode
-                    )
-                    log.update(
-                        {"Expand accuracy": exp_result["Accuracy"], "Expand index": exp_result["Sum of index"],
-                         "Expand correct char": exp_result["Correct char"], "Expand chars": exp_result["Chars"]})
                 self._save_checkpoint(epoch, save_best=best)
             else:
                 not_improved_count += 1
@@ -237,7 +209,7 @@ class PairedTrainer(BasePairedTrainer):
                     combined_loss = source_loss + dis_loss
                     self._backward(self.source_optimizer, combined_loss)
                 else:
-                    # suppose target model is equal to source model
+                    # suppose target models is equal to source models
                     target_code, target_loss = model_helper.run_batch(self.target_model, target_batch, self.model_type,
                                                                       device=self.device)
                     source_code, source_loss = model_helper.run_batch(self.source_model, source_batch, self.model_type,
@@ -258,7 +230,7 @@ class PairedTrainer(BasePairedTrainer):
 
 
 class GradNormTrainer(BasePairedTrainer):
-    def __init__(self, config: Configuration, dataset: PairedDataset):
+    def __init__(self, config: ModelConfiguration, dataset: PairedDataset):
         super().__init__(config, dataset)
         self.target_weight = torch.tensor([1.], requires_grad=True)
         self.source_weight = torch.tensor([1.], requires_grad=True)
@@ -347,17 +319,17 @@ class GradNormTrainer(BasePairedTrainer):
 
 
 if __name__ == "__main__":
-    # test code here, using ae model
-    model_type, criterion, strategy, stage = "VQVAE", "mmd", "single", "add"
-    dataset_name = "jia_jin"
+    # Basic test code here, using VanillaVAE model as test model
+    model_type, criterion, strategy, stage, mode = "VanillaVAE", "mmd", "single", "add", "instance"
+    paired_chars = ["jia", "jin"]
     model_params = {"embedding_dim": 16, "num_embeddings": 512}
-    mode = "instance"
-    conf = Configuration(device_id=0, model_type=model_type, criterion=criterion, strategy=strategy, stage=stage,
-                         paired_chars=dataset_name.split("_"), model_params=model_params, early_stop=100, mode=mode)
+    dataset_type = "cluster"
+    conf = ModelConfiguration(device_id=0, model_type=model_type, criterion=criterion, strategy=strategy, stage=stage,
+                              paired_chars=paired_chars, mode=mode, dataset_type=dataset_type)
     tools.print_log(conf.model_params, file=open(conf.log_file, "a+"))
-    paired_dataset = PairedDataset(False, dataset_name=dataset_name, model_type=model_type, val_num=100, test_num=100,
-                                   is_expanded=False, source_name="jin")
-    # change path to which model you want resume from
+    paired_dataset = PairedDataset(False, conf=conf)
+    paired_dataset.split_dataset()
+    # change path to which models you want resume from
     checkpoint_path = "checkpoint/%s_base_one/checkpoint-epoch60.pth" % model_type
     test_trainer = PairedTrainer(config=conf, dataset=paired_dataset)
     test_trainer.train()
