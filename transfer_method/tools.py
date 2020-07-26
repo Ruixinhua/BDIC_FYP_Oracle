@@ -1,11 +1,10 @@
 import torch
-import configuration
 import os
 from torchvision import transforms
 import torch.optim as optim
-from models import AE, ResNet_VAE, VanillaVAE
 import shutil
 from datetime import datetime
+
 
 seed = 42
 torch.manual_seed(seed)
@@ -19,7 +18,7 @@ def make_dir(d):
 
 
 def print_log(info_str, other_info='', file=None):
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    current_time = datetime.now().strftime('%Y-%m-%c %H:%M:%S')
     if file:
         print("%s [INFO]: %s %s" % (current_time, info_str, other_info), file=file)
         file.flush()
@@ -39,21 +38,9 @@ def copy_files(source_paths, des_paths, is_debug=False):
             print_log("Copy file from %s to %s" % (source_path, des_path))
 
 
-def get_cur_dataset_path(char_type, cur_data_dir=None):
-    if cur_data_dir is None:
-        cur_data_dir = configuration.cur_data_dir
-    return os.path.join(cur_data_dir, char_type)
-
-
-def get_char_set(dataset_path=None, data_dir=None):
-    if dataset_path is None:
-        dataset_path = get_cur_dataset_path("jia", data_dir)
-    return set(os.listdir(dataset_path))
-
-
 def get_device(device_id=0):
     """
-    setup GPU device if available, move model into configured device
+    setup GPU device if available, move models into configured device
     """
     if torch.cuda.is_available():
         return torch.device("cuda:%d" % device_id)
@@ -61,15 +48,10 @@ def get_device(device_id=0):
         return torch.device("cpu")
 
 
-def get_default_model_class(model_type="AE", img_size=96, **model_params):
-    if model_type == "AE":
-        return AE(input_shape=img_size * img_size)
-    elif model_type == "ResNet_VAE":
-        if model_params is None:
-            model_params = {"fc_hidden1": 1024, "fc_hidden2": 1024, "CNN_embed_dim": 256}
-        return ResNet_VAE(**model_params)
-    elif model_type == "VanillaVAE":
-        return VanillaVAE(input_size=img_size)
+def get_default_model_class(model_type="AE", **model_params):
+    model_object = __import__("models")
+    model_class = getattr(model_object, model_type)
+    return model_class(**model_params)
 
 
 def get_default_transform(model_type, img_size=96):
@@ -78,6 +60,8 @@ def get_default_transform(model_type, img_size=96):
     elif model_type == "ResNet_VAE":
         return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
     elif model_type == "VanillaVAE":
+        return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
+    else:
         return transforms.Compose([transforms.Resize([img_size, img_size]), transforms.ToTensor()])
 
 
@@ -91,29 +75,4 @@ def get_model_opt(state_dic_path, model_class, learning_rate=1e-3, device=get_de
     model = get_model_by_state(state_dic_path, model_class, device=device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     return model, optimizer
-
-
-def get_models_by_type(model_type="AE", device=get_device(), train=True, model_paths=None, lr=1e-3):
-    """
-    Get models by model paths with type
-    Args:
-        model_type: type of model, can be "AE" or "VAE"
-        device: target cuda device
-        train: boolean type, default is True
-        model_paths: paths of models
-        lr: learning rate
-
-    Returns: a tuple of model and target_optimizer objects
-
-    """
-    if model_paths is None:
-        # if model paths is not set, use default models
-        model_paths = ("model/jia_%s_base_full.pkl" % model_type, "model/jin_%s_base_full.pkl" % model_type)
-    models = []
-    for model_path in model_paths:
-        model, opt = get_model_opt(model_path, get_default_model_class(model_type), lr, device)
-        if train:
-            model.is_train()
-        models.extend((model, opt))
-    return tuple(models)
 
