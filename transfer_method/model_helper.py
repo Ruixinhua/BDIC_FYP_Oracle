@@ -72,8 +72,10 @@ def get_center(model, batch, model_type="AE", num_iter=None):
     return torch.mean(code.cpu().data, dim=0).reshape((1, -1)).numpy()[0]
 
 
+# This prediction function is no longer used, see Prediction class in prediction.py
 def predict(target_data, target_labels, source_data, source_labels, target_model, source_model=None, top_n=10,
             model_type="AE", criterion="mmd", mode="instance"):
+
     if source_model is None:
         source_model = target_model
 

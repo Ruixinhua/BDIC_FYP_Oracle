@@ -149,9 +149,7 @@ class BasePairedTrainer:
             self.prediction_result.append([val_result, val_paths])
             log.update(val_result)
             if self.dataset.source_data_exp is not None and self.dataset.source_labels_exp is not None:
-                pred = Prediction(self.dataset.target_val, self.dataset.labels_val, self.dataset.source_data_exp,
-                                  self.dataset.source_labels_exp, self.dataset.paths_val, set_type="val_exp",
-                                  model_type=self.model_type)
+                pred.set_source(self.dataset.source_data_exp, self.dataset.source_labels_exp, set_type="val_exp")
                 exp_result, exp_paths = pred.predict(self.target_model, self.source_model)
                 self.prediction_result.append([exp_result, exp_paths])
                 log.update(exp_result)
